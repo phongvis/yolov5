@@ -76,7 +76,7 @@ def ap_per_class(tp, conf, pred_cls, target_cls, plot=False, save_dir='.', names
         plot_mc_curve(px, r, Path(save_dir) / 'R_curve.png', names, ylabel='Recall')
 
     i = f1.mean(0).argmax()  # max F1 index
-    return p[:, i], r[:, i], ap, f1[:, i], unique_classes.astype('int32')
+    return p[:, i], r[:, i], ap, f1[:, i], px[i], unique_classes.astype('int32')
 
 
 def compute_ap(recall, precision):
@@ -105,6 +105,38 @@ def compute_ap(recall, precision):
         ap = np.sum((mrec[i + 1] - mrec[i]) * mpre[i + 1])  # area under curve
 
     return ap, mpre, mrec
+
+
+def compute_f1(tp, conf, pred_cls, target_cls):
+    """Compute precision, recall, f1-score per class.
+    # Arguments
+        tp:  True positives (nparray, nx1 or nx10).
+        conf:  Objectness value from 0-1 (nparray).
+        pred_cls:  Predicted object classes (nparray).
+        target_cls:  True object classes (nparray).
+        plot:  Plot precision-recall curve at mAP@0.5
+        save_dir:  Plot save directory
+    """
+
+    unique_classes = np.sort(np.unique(target_cls))
+    nc = unique_classes.shape[0]
+    p, r = np.zeros(nc), np.zeros(nc)
+
+    for ci, c in enumerate(unique_classes):
+        i = pred_cls == c
+        n_l = (target_cls == c).sum()  # number of labels
+        n_p = i.sum()  # number of predictions
+
+        if n_p == 0 or n_l == 0:
+            continue
+
+        fpc = (1 - tp[i]).sum()
+        tpc = tp[i].sum()
+        p[ci] = tpc / (tpc + fpc)
+        r[ci] = tpc / (n_l + 1e-16)
+    
+    f1 = 2 * p * r / (p + r + 1e-16)
+    return p, r, f1, unique_classes.astype('int32')
 
 
 class ConfusionMatrix:
