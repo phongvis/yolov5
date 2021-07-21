@@ -93,7 +93,7 @@ def run_test(yaml, model, conf, results, gs_bucket=None, prefix='', mean_f1_thre
     return stats['mean_f1'] >= mean_f1_thres and not stats['lower_precision_threshold'] and not stats['lower_precision_threshold']
     
 def evaluate(validation_yaml, unit_test_yaml, handmade_test_yaml, model, 
-             gs_bucket=None, img_size=1280, val_map_thres=0.5,
+             gs_folder=None, img_size=1280, val_map_thres=0.5,
              unit_mean_f1_thres=0.5, unit_prec_thres=0.5, unit_recall_thres=0.5,
              handmade_mean_f1_thres=0.5, handmade_prec_thres=0.5, handmade_recall_thres=0.5):
     """Evaluate the model against a number of tests.
@@ -109,6 +109,7 @@ def evaluate(validation_yaml, unit_test_yaml, handmade_test_yaml, model,
     print(f'validation mAP: {val_map:.2f}')
     
     # 2. Unit tests
+    gs_bucket = 'gs://logo-training/jobs/' + gs_folder + '/'
     unit_test_status = run_test(
         unit_test_yaml, model, conf=conf, results=results, gs_bucket=gs_bucket, prefix='unit_', 
         mean_f1_thres=unit_mean_f1_thres, prec_thres=unit_prec_thres, recall_thres=unit_recall_thres, img_size=img_size)
