@@ -11,13 +11,12 @@ from pathlib import Path
 import json
 import os
 import requests
+import argparse
+from datetime import datetime
 
 from val import run, compute_metrics
 
-def update_metadata(optimal_conf, model_details):
-    # Make new folder for the model, containing 2 files
-    full_folder_name = 'gs://logo-training/jobs/' + model_details['folder'] + '/'
-    
+def update_metadata(optimal_conf, model_details, gs_folder):
     # 1. meta.json
     meta = { 
         'size': model_details['size'],
@@ -29,18 +28,23 @@ def update_metadata(optimal_conf, model_details):
     meta_file = save_folder/'meta.json'
     with open(meta_file, 'w') as f:
         f.write(json.dumps(meta))
-    os.system(f'gsutil cp {meta_file} {full_folder_name}')
-    print(f'Copied meta.json to {full_folder_name}')
+    os.system(f'gsutil cp {meta_file} {gs_folder}')
+    print(f'Copied meta.json to {gs_folder}')
     
     # 2. best.pt
-    os.system(f'gsutil cp {model_details["model"]} {full_folder_name}best.pt')
-    print(f'Copied best.pt to {full_folder_name}')
+    os.system(f'gsutil cp {model_details["model"]} {gs_folder}best.pt')
+    print(f'Copied best.pt to {gs_folder}')
     
     # model
-    model_file = save_folder/'test_model2'
+    model_type = 'brands-general'
+    model_file = save_folder/(model_type + '.txt')
     with open(model_file, 'w') as f:
-        f.write(full_folder_name[5:-1])
-    os.system(f'gsutil cp {model_file} gs://logo-training')
+        f.write(gs_folder[5:-1])
+        
+    # 2 files: 1 for current and 1 for versioning
+    os.system(f'gsutil cp {model_file} gs://logo-training/models2')
+    version_model_file = model_type + '-' + datetime.now().strftime('%Y%d%m_%H%M%S') + '.txt'
+    os.system(f'gsutil cp {model_file} gs://logo-training/models/' + version_model_file)
     print('Copied model to gs://logo-training')
 
 def deploy(circle_ci_token):
@@ -50,6 +54,8 @@ def deploy(circle_ci_token):
         'parameters': { 'run_workflow_deploy': True },
         'branch': 'release-1'
     }
+    
+    print('deploy with circle', circle_ci_token)
 
     requests.post(
         'https://circleci.com/api/v2/project/github/redsift/logo-detection/pipeline', 
@@ -63,7 +69,12 @@ def deploy(circle_ci_token):
 def run_test(yaml, model, conf, results, gs_bucket=None, prefix='', mean_f1_thres=0.5, prec_thres=0.5, recall_thres=0.5, img_size=1280):
     """Run tests, save results, record important metrics and return status.
     """
-    metrics_df, confusion_df = compute_metrics(yaml, model, imgsz=img_size, conf_thres=conf)
+    print(f'EVALUATE {yaml}', flush=True)
+    metrics = compute_metrics(yaml, model, imgsz=img_size, conf_thres=conf)
+    if metrics is None:
+        raise Exception('No correct predictions. There should be something wrong with the model.')
+        
+    metrics_df, confusion_df = metrics    
     save_folder = Path('__temp__')
     save_folder.mkdir(exist_ok=True)
     metrics_file = save_folder/(prefix + 'metrics.csv')
@@ -90,34 +101,40 @@ def run_test(yaml, model, conf, results, gs_bucket=None, prefix='', mean_f1_thre
         os.system(f'gsutil cp {confusion_file} {gs_bucket}')
     
     # Test fails if either mean f1 is lower than threshold or precision/recall of any class is lower than threshold
+    print(stats['mean_f1'], stats['lower_precision_threshold'], stats['lower_precision_threshold'])
     return stats['mean_f1'] >= mean_f1_thres and not stats['lower_precision_threshold'] and not stats['lower_precision_threshold']
     
 def evaluate(validation_yaml, unit_test_yaml, handmade_test_yaml, model, 
-             gs_folder=None, img_size=1280, val_map_thres=0.5,
+             gs_bucket=None, img_size=1280, min_opt_conf=0.6, val_map_thres=0.5,
              unit_mean_f1_thres=0.5, unit_prec_thres=0.5, unit_recall_thres=0.5,
              handmade_mean_f1_thres=0.5, handmade_prec_thres=0.5, handmade_recall_thres=0.5):
     """Evaluate the model against a number of tests.
     Return None if the model fails. Return the confidence threshold if it's sucessful.
     """
+    print('\n==================== EVALUATING MODELS ===================\n')
+    
     # 1a. Compute validation mAP
     # 1b. Retrieve optimal confidence threshold for following metrics calculation and inference usage
+    print(f'EVALUATE {validation_yaml}', flush=True)
     val_map, conf = run(validation_yaml, model, imgsz=img_size, get_optimal_conf=True)
-    val_map, conf = 0.42, 0.25
+    conf = max(conf, min_opt_conf)
     val_status = val_map >= val_map_thres
     results = { "mean_map_validation": val_map }
     print(f'Optimal confidence: {conf:.2f}')
     print(f'validation mAP: {val_map:.2f}')
+    print('val_status', val_status)
     
     # 2. Unit tests
-    gs_bucket = 'gs://logo-training/jobs/' + gs_folder + '/'
     unit_test_status = run_test(
         unit_test_yaml, model, conf=conf, results=results, gs_bucket=gs_bucket, prefix='unit_', 
         mean_f1_thres=unit_mean_f1_thres, prec_thres=unit_prec_thres, recall_thres=unit_recall_thres, img_size=img_size)
+    print('unit_test_status', unit_test_status)
     
     # 3. Handmade tests
     handmade_test_status = run_test(
         handmade_test_yaml, model, conf=conf, results=results, gs_bucket=gs_bucket, prefix='handmade_',
         mean_f1_thres=handmade_mean_f1_thres, prec_thres=handmade_prec_thres, recall_thres=handmade_recall_thres, img_size=img_size)
+    print('handmade_test_status', handmade_test_status)
 
     # Write results
     save_folder = Path('__temp__')
@@ -136,3 +153,48 @@ def evaluate(validation_yaml, unit_test_yaml, handmade_test_yaml, model,
     else:
         print('Tests failed; see results.json for more details')
         return None
+    
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--job-dir', type=str, required=True, help='local or GCS location for writing checkpoints and exporting models')
+    parser.add_argument('--train-folder', type=str, required=True, help='name of the training data folder')
+    parser.add_argument('--unittest-folder', type=str, required=True, help='name of the unit test data folder')
+    parser.add_argument('--handmade-folder', type=str, default='handmade', help='name of the handmade test data folder')
+    parser.add_argument('--min-opt-conf', type=float, default=0.5, help='minimum optimal confidence threshold')
+    parser.add_argument('--val-map-thres', type=float, default=0.5, help='minimum mAP of validation set')
+    parser.add_argument('--unit-mean-f1-thres', type=float, default=0.5, help='minimum average f1 of unittests')
+    parser.add_argument('--unit-prec-thres', type=float, default=0.5, help='minimum precision of all classes of unittests')
+    parser.add_argument('--unit-recall-thres', type=float, default=0.5, help='minimum recall of all classes of unittests')
+    parser.add_argument('--handmade-mean-f1-thres', type=float, default=0.5, help='minimum average f1 of handmade tests')
+    parser.add_argument('--handmade-prec-thres', type=float, default=0.5, help='minimum precision of all classes of handmade tests')
+    parser.add_argument('--handmade-recall-thres', type=float, default=0.5, help='minimum recall of all classes of handmade tests')
+    opt = parser.parse_known_args()[0]
+    
+
+    # 1. Evaluate
+    validation_yaml = 'data/' + opt.train_folder + '/data.yaml'
+    unit_test_yaml = 'data/' + opt.unittest_folder + '/data.yaml'
+    handmade_test_yaml = 'data/' + opt.handmade_folder + '/data.yaml'
+    model = 'runs/train/exp/weights/best.pt'
+
+    optimal_conf = evaluate(validation_yaml, unit_test_yaml, handmade_test_yaml, model, 
+                            gs_bucket=opt.job_dir, 
+                            min_opt_conf=opt.min_opt_conf,
+                            val_map_thres=opt.val_map_thres,
+                            unit_mean_f1_thres=opt.unit_mean_f1_thres, 
+                            unit_prec_thres=opt.unit_prec_thres, 
+                            unit_recall_thres=opt.unit_recall_thres,
+                            handmade_mean_f1_thres=opt.handmade_mean_f1_thres, 
+                            handmade_prec_thres=opt.handmade_prec_thres, 
+                            handmade_recall_thres=opt.handmade_recall_thres)
+    
+    # 2. Deploy
+    if optimal_conf is not None:
+        model_details = {
+            'size': 1280,
+            'base': 'YOLOv5l6',
+            'model': model
+        }
+
+        update_metadata(optimal_conf, model_details, opt.job_dir)
+        deploy(os.getenv('CIRCLE_CI_TOKEN'))

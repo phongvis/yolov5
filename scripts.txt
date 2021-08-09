@@ -17,26 +17,6 @@ docker run $CPU_IMAGE_URI --epochs 1
 ########## PUSH TO GCR ##########
 docker push $IMAGE_URI
 
-
-
-  --master-machine-type a2-highgpu-1g \
-  --master-accelerator type=nvidia_tesla_a100,count=$GPUS \
-
-
-
-!python -m torch.distributed.launch --nproc_per_node 2 train.py \
-	--batch-size 64 
-	--data $data_file \
-	--name $model_name \
-	--img-size 1280 \
-	--weights yolov5l6.pt
-
-BUCKET_NAME=logo-training
-REGION=us-central1
-JOB_NAME=exp_$(date '+%Y%m%d_%H%M%S')
-JOB_DIR=gs://$BUCKET_NAME/jobs/$JOB_NAME
-
-
 #************************************************************#
 ########## TIPS ##########
 # start interactive terminal instead of default entrypoint
