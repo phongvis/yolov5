@@ -200,7 +200,7 @@ if __name__ == '__main__':
     parser.add_argument('--job-dir', type=str, required=True, help='GCS location for writing checkpoints and exporting models')
     parser.add_argument('--model-pointers-dir', type=str, required=True, help='GCS location that keeps pointers to job dirs')
     parser.add_argument('--circle-ci-token', type=str, required=True, help='to deploy in circleci')
-    parser.add_argument('--deploy-after-train', type=bool, required=True, help='whether or not to deploy the trained model')
+    parser.add_argument('--deploy-after-train', type=str, required=True, help='whether or not to deploy the trained model')
     parser.add_argument('--train-folder', type=str, required=True, help='name of the training data folder')
     parser.add_argument('--unittest-folder', type=str, required=True, help='name of the unit test data folder')
     parser.add_argument('--handmade-folder', type=str, default='handmade', help='name of the handmade test data folder')
@@ -216,5 +216,8 @@ if __name__ == '__main__':
     parser.add_argument('--epochs', type=int, default=300)
     parser.add_argument('--img-size', type=int, default=640, help='image sizes')
     opt = parser.parse_known_args()[0]
+    
+    # the boolean parameter was converted to a string
+    opt.deploy_after_train = opt.deploy_after_train == 'True'
     
     main(opt)
