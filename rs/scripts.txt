@@ -1,6 +1,6 @@
 ########## BUILD IMAGE ##########
 export IMAGE_URI=gcr.io/eagle-316209/logo:gpu
-docker build -f Dockerfile -t $IMAGE_URI ./
+docker build -f yolov5/rs/Dockerfile -t $IMAGE_URI ./
 
 ########## PUSH TO GCR ##########
 docker push $IMAGE_URI

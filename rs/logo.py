@@ -1,14 +1,5 @@
 """An additional module for evaluating and deploying models. 
-
-Usage:
-optimal_conf = evaluate(...)
-if optimal_conf is not None:
-    update_metadata(optimal_conf, model_details)
-    deploy(...)
 """
-# import sys
-# if '../../' not in sys.path:
-#     sys.path.append('../../')
 
 from pathlib import Path
 import json
@@ -18,10 +9,9 @@ import argparse
 from datetime import datetime
 import pytz
 
-# from root.val import run, compute_metrics
 from val import run, compute_metrics
 
-def update_metadata(optimal_conf, model_details, gs_job_dir, gs_model_pointers_dir):
+def update_metadata(optimal_conf, model_details, gs_job_dir):
     # 1. meta.json
     meta = { 
         'size': model_details['size'],
@@ -41,7 +31,15 @@ def update_metadata(optimal_conf, model_details, gs_job_dir, gs_model_pointers_d
     os.system(f'gsutil cp {model_details["model"]} {gs_job_dir}best.pt')
     print(f'Copied best.pt to {gs_job_dir}')
     
-    # model
+    # 3. Copy training logs
+    os.system('rm -rf runs/train/exp/weights')
+    os.system(f'gsutil cp -r runs/train/exp {gs_job_dir}')
+    print(f'Copied training logs to {gs_job_dir}')
+    
+def update_model_pointers(gs_model_pointers_dir):
+    # model.txt
+    save_folder = Path('__temp__')
+    save_folder.mkdir(exist_ok=True)
     model_type = 'brands-general'
     model_file = save_folder/(model_type + '.txt')
     with open(model_file, 'w') as f:
@@ -54,17 +52,9 @@ def update_metadata(optimal_conf, model_details, gs_job_dir, gs_model_pointers_d
     os.system(f'gsutil cp {model_file} {gs_model_pointers_dir}{version_model_file}')
     print(f'Copied model pointers to {gs_model_pointers_dir}')
     
-    # Copy training logs
-    os.system('rm -rf runs/train/exp/weights')
-    os.system(f'gsutil cp -r runs/train/exp {gs_job_dir}')
-    print(f'Copied training logs to {gs_job_dir}')
-
 def deploy(circle_ci_token):
     """Make circleci rebuild.
     """
-    print(f'Deployment with {circle_ci_token} is cancelled for testing')
-    return 
-
     data = {
         'parameters': { 'run_workflow_deploy': True },
         'branch': 'release-1'
@@ -78,7 +68,7 @@ def deploy(circle_ci_token):
         },
         data=json.dumps(data))
     
-    print(response.status_code)
+    print(f'Posted request to circleci with {response.status_code} status code response')
 
 def run_test(yaml, model, conf, results, gs_job_dir=None, prefix='', mean_f1_thres=0.5, prec_thres=0.5, recall_thres=0.5, img_size=1280):
     """Run tests, save results, record important metrics and return status.
@@ -86,8 +76,7 @@ def run_test(yaml, model, conf, results, gs_job_dir=None, prefix='', mean_f1_thr
     print(f'EVALUATE {yaml}', flush=True)
     metrics = compute_metrics(yaml, model, imgsz=img_size, conf_thres=conf)
     if metrics is None:
-        return True
-        raise Exception('No correct predictions. There should be something wrong with the model.')
+        return False
         
     metrics_df, confusion_df = metrics    
     save_folder = Path('__temp__')
@@ -169,28 +158,7 @@ def evaluate(validation_yaml, unit_test_yaml, handmade_test_yaml, model,
         print('Tests failed; see results.json for more details')
         return None
     
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--job-dir', type=str, required=True, help='GCS location for writing checkpoints and exporting models')
-    parser.add_argument('--model-pointers-dir', type=str, required=True, help='GCS location that keeps pointers to job dirs')
-    parser.add_argument('--circle-ci-token', type=str, required=True, help='to deploy in circleci')
-    parser.add_argument('--train-folder', type=str, required=True, help='name of the training data folder')
-    parser.add_argument('--unittest-folder', type=str, required=True, help='name of the unit test data folder')
-    parser.add_argument('--handmade-folder', type=str, default='handmade', help='name of the handmade test data folder')
-    parser.add_argument('--min-opt-conf', type=float, default=0.5, help='minimum optimal confidence threshold')
-    parser.add_argument('--val-map-thres', type=float, default=0.5, help='minimum mAP of validation set')
-    parser.add_argument('--unit-mean-f1-thres', type=float, default=0.5, help='minimum average f1 of unittests')
-    parser.add_argument('--unit-prec-thres', type=float, default=0.5, help='minimum precision of all classes of unittests')
-    parser.add_argument('--unit-recall-thres', type=float, default=0.5, help='minimum recall of all classes of unittests')
-    parser.add_argument('--handmade-mean-f1-thres', type=float, default=0.5, help='minimum average f1 of handmade tests')
-    parser.add_argument('--handmade-prec-thres', type=float, default=0.5, help='minimum precision of all classes of handmade tests')
-    parser.add_argument('--handmade-recall-thres', type=float, default=0.5, help='minimum recall of all classes of handmade tests')
-    parser.add_argument('--weights', type=str, default='yolov5s.pt', help='initial weights path')
-    parser.add_argument('--epochs', type=int, default=300)
-    parser.add_argument('--img-size', type=int, default=640, help='image sizes')
-    opt = parser.parse_known_args()[0]
-    
-
+def main(opt):
     # 1. Evaluate
     validation_yaml = 'data/' + opt.train_folder + '/data.yaml'
     unit_test_yaml = 'data/' + opt.unittest_folder + '/data.yaml'
@@ -208,14 +176,45 @@ if __name__ == '__main__':
                             handmade_prec_thres=opt.handmade_prec_thres, 
                             handmade_recall_thres=opt.handmade_recall_thres)
     
-    # 2. Deploy
-    if optimal_conf is not None:
-        model_details = {
-            'size': opt.img_size,
-            'base': opt.weights,
-            'epochs': opt.epochs,
-            'model': model
-        }
-
-        update_metadata(optimal_conf, model_details, opt.job_dir, opt.model_pointers_dir)
+    # 2. Update training results
+    model_details = {
+        'size': opt.img_size,
+        'base': opt.weights,
+        'epochs': opt.epochs,
+        'model': model
+    }
+    update_metadata(optimal_conf, model_details, opt.job_dir)
+    
+    # 3. Deploy
+    if optimal_conf is None:
+        print('Training finished with poor results. No deployment.')
+        return
+    
+    if opt.deploy_after_train:
         deploy(opt.circle_ci_token)
+    else:
+        print('Skip deploying as deploy_after_train=False')
+    
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--job-dir', type=str, required=True, help='GCS location for writing checkpoints and exporting models')
+    parser.add_argument('--model-pointers-dir', type=str, required=True, help='GCS location that keeps pointers to job dirs')
+    parser.add_argument('--circle-ci-token', type=str, required=True, help='to deploy in circleci')
+    parser.add_argument('--deploy-after-train', type=bool, required=True, help='whether or not to deploy the trained model')
+    parser.add_argument('--train-folder', type=str, required=True, help='name of the training data folder')
+    parser.add_argument('--unittest-folder', type=str, required=True, help='name of the unit test data folder')
+    parser.add_argument('--handmade-folder', type=str, default='handmade', help='name of the handmade test data folder')
+    parser.add_argument('--min-opt-conf', type=float, default=0.5, help='minimum optimal confidence threshold')
+    parser.add_argument('--val-map-thres', type=float, default=0.5, help='minimum mAP of validation set')
+    parser.add_argument('--unit-mean-f1-thres', type=float, default=0.5, help='minimum average f1 of unittests')
+    parser.add_argument('--unit-prec-thres', type=float, default=0.5, help='minimum precision of all classes of unittests')
+    parser.add_argument('--unit-recall-thres', type=float, default=0.5, help='minimum recall of all classes of unittests')
+    parser.add_argument('--handmade-mean-f1-thres', type=float, default=0.5, help='minimum average f1 of handmade tests')
+    parser.add_argument('--handmade-prec-thres', type=float, default=0.5, help='minimum precision of all classes of handmade tests')
+    parser.add_argument('--handmade-recall-thres', type=float, default=0.5, help='minimum recall of all classes of handmade tests')
+    parser.add_argument('--weights', type=str, default='yolov5s.pt', help='initial weights path')
+    parser.add_argument('--epochs', type=int, default=300)
+    parser.add_argument('--img-size', type=int, default=640, help='image sizes')
+    opt = parser.parse_known_args()[0]
+    
+    main(opt)
