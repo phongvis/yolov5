@@ -36,7 +36,7 @@ def update_metadata(optimal_conf, model_details, gs_job_dir):
     os.system(f'gsutil cp -r runs/train/exp {gs_job_dir}')
     print(f'Copied training logs to {gs_job_dir}')
     
-def update_model_pointers(gs_model_pointers_dir):
+def update_model_pointers(gs_job_dir, gs_model_pointers_dir):
     # model.txt
     save_folder = Path('__temp__')
     save_folder.mkdir(exist_ok=True)
@@ -191,6 +191,7 @@ def main(opt):
         return
     
     if opt.deploy_after_train:
+        update_model_pointers(opt.job_dir, opt.model_pointers_dir)
         deploy(opt.circle_ci_token)
     else:
         print('Skip deploying as deploy_after_train=False')
