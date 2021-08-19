@@ -168,7 +168,7 @@ def _update_handmade_yaml(source_file, dest_file):
         dest_lines = f.readlines()
 
     # The last 2 lines are nc and classes
-    dest_lines[3:] = source_lines[3:]
+    dest_lines[-2:] = source_lines[-2:]
     with open(dest_file, 'w') as f:
         f.write(''.join(dest_lines))
     
