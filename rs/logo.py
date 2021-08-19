@@ -157,12 +157,27 @@ def evaluate(validation_yaml, unit_test_yaml, handmade_test_yaml, model,
     else:
         print('Tests failed; see results.json for more details')
         return None
+
+def _update_handmade_yaml(source_file, dest_file):
+    """handmade test is static with a small number of classes. 
+    However the classes in its yaml file should be the same as in the unittests 
+    to avoid index error in prediction"""
+    with open(source_file) as f:
+        source_lines = f.readlines()
+    with open(dest_file) as f:
+        dest_lines = f.readlines()
+
+    # The last 2 lines are nc and classes
+    dest_lines[3:] = source_lines[3:]
+    with open(dest_file, 'w') as f:
+        f.write(''.join(dest_lines))
     
 def main(opt):
     # 1. Evaluate
     validation_yaml = 'data/' + opt.train_folder + '/data.yaml'
     unit_test_yaml = 'data/' + opt.unittest_folder + '/data.yaml'
     handmade_test_yaml = 'data/' + opt.handmade_folder + '/data.yaml'
+    _update_handmade_yaml(unit_test_yaml, handmade_test_yaml)
     model = 'runs/train/exp/weights/best.pt'
 
     optimal_conf = evaluate(validation_yaml, unit_test_yaml, handmade_test_yaml, model, 
