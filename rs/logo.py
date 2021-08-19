@@ -28,7 +28,7 @@ def update_metadata(optimal_conf, model_details, gs_job_dir):
     print(f'Copied meta.json to {gs_job_dir}')
     
     # 2. best.pt
-    os.system(f'gsutil cp {model_details["model"]} {gs_job_dir}best.pt')
+    os.system(f'gsutil cp {model_details["model"]} {Path(gs_job_dir)/"best.pt"}')
     print(f'Copied best.pt to {gs_job_dir}')
     
     # 3. Copy training logs
@@ -49,7 +49,7 @@ def update_model_pointers(gs_job_dir, gs_model_pointers_dir):
     os.system(f'gsutil cp {model_file} {gs_model_pointers_dir}')
     t = datetime.now().astimezone(pytz.timezone('Europe/London')).strftime('%Y%m%d_%H%M%S')
     version_model_file = model_type + '-' + t + '.version'
-    os.system(f'gsutil cp {model_file} {gs_model_pointers_dir}{version_model_file}')
+    os.system(f'gsutil cp {model_file} {Path(gs_model_pointers_dir)/version_model_file}')
     print(f'Copied model pointers to {gs_model_pointers_dir}')
     
 def deploy(circle_ci_token):
@@ -100,10 +100,10 @@ def run_test(yaml, model, conf, results, gs_job_dir=None, prefix='', mean_f1_thr
     print(f'  Number of classes with recalls lower than {recall_thres}: {len(stats["lower_recall_threshold"])}')
     
     if gs_job_dir:
-        gs_job_dir = gs_job_dir + 'stats/'
+        gs_stats_dir = Path(gs_job_dir)/'stats' + '/'
         print('  Copy metrics and confusions files to gscloud')
-        os.system(f'gsutil cp {metrics_file} {gs_job_dir}')
-        os.system(f'gsutil cp {confusion_file} {gs_job_dir}')
+        os.system(f'gsutil cp {metrics_file} {gs_stats_dir}')
+        os.system(f'gsutil cp {confusion_file} {gs_stats_dir}')
     
     # Test fails if either mean f1 is lower than threshold or precision/recall of any class is lower than threshold
     return stats['mean_f1'] >= mean_f1_thres and not stats['lower_precision_threshold'] and not stats['lower_precision_threshold']
