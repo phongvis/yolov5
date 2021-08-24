@@ -70,7 +70,7 @@ def deploy(circle_ci_token):
     
     print(f'Posted request to circleci with {response.status_code} status code response')
 
-def run_test(yaml, model, conf, results, gs_job_dir=None, prefix='', mean_f1_thres=0.5, prec_thres=0.5, recall_thres=0.5, img_size=1280):
+def run_test(yaml, model, conf, results, gs_job_dir=None, prefix='', img_size=1280, thres=None):
     """Run tests, save results, record important metrics and return status.
     """
     print(f'EVALUATE {yaml}', flush=True)
@@ -91,13 +91,13 @@ def run_test(yaml, model, conf, results, gs_job_dir=None, prefix='', mean_f1_thr
     stats['mean_f1'] = metrics_df['f1'].mean()
     stats['highest_f1'] = metrics_df.sort_values('f1', ascending=False).iloc[:5]['f1'].to_dict()
     stats['lowest_f1'] = metrics_df.sort_values('f1', ascending=True).iloc[:5]['f1'].to_dict()
-    stats['lower_precision_threshold'] = metrics_df[metrics_df['precision'] < prec_thres]['precision'].sort_values().to_dict()
-    stats['lower_recall_threshold'] = metrics_df[metrics_df['recall'] < prec_thres]['recall'].sort_values().to_dict()
+    stats['lower_precision_threshold'] = metrics_df[metrics_df['precision'] < thres['prec']]['precision'].sort_values().to_dict()
+    stats['lower_recall_threshold'] = metrics_df[metrics_df['recall'] < thres['recall']]['recall'].sort_values().to_dict()
     
     print(prefix + 'tests')
     print(f'  Mean of F1 for all classes: {stats["mean_f1"]:.2f}')
-    print(f'  Number of classes with precisions lower than {prec_thres}: {len(stats["lower_precision_threshold"])}')
-    print(f'  Number of classes with recalls lower than {recall_thres}: {len(stats["lower_recall_threshold"])}')
+    print(f'  Number of classes with precisions lower than {thres["prec"]}: {len(stats["lower_precision_threshold"])}')
+    print(f'  Number of classes with recalls lower than {thres["recall"]}: {len(stats["lower_recall_threshold"])}')
     
     if gs_job_dir:
         gs_job_dir = gs_job_dir + 'stats/'
@@ -106,12 +106,10 @@ def run_test(yaml, model, conf, results, gs_job_dir=None, prefix='', mean_f1_thr
         os.system(f'gsutil cp {confusion_file} {gs_job_dir}')
     
     # Test fails if either mean f1 is lower than threshold or precision/recall of any class is lower than threshold
-    return stats['mean_f1'] >= mean_f1_thres and not stats['lower_precision_threshold'] and not stats['lower_precision_threshold']
+    return stats['mean_f1'] >= thres['mean_f1'] and not stats['lower_precision_threshold'] and not stats['lower_precision_threshold']
     
-def evaluate(validation_yaml, unit_test_yaml, handmade_test_yaml, model, 
-             gs_job_dir=None, img_size=1280, min_opt_conf=0.6, val_map_thres=0.5,
-             unit_mean_f1_thres=0.5, unit_prec_thres=0.5, unit_recall_thres=0.5,
-             handmade_mean_f1_thres=0.5, handmade_prec_thres=0.5, handmade_recall_thres=0.5):
+def evaluate(validation_yaml, unit_test_yaml, model, 
+             gs_job_dir=None, img_size=1280, config=None):
     """Evaluate the model against a number of tests.
     Return None if the model fails. Return the confidence threshold if it's sucessful.
     """
@@ -121,23 +119,29 @@ def evaluate(validation_yaml, unit_test_yaml, handmade_test_yaml, model,
     # 1b. Retrieve optimal confidence threshold for following metrics calculation and inference usage
     print(f'EVALUATE {validation_yaml}', flush=True)
     val_map, conf = run(validation_yaml, model, imgsz=img_size, get_optimal_conf=True)
-    conf = max(conf, min_opt_conf)
-    val_status = val_map >= val_map_thres
+
+                            # min_opt_conf=config['min_opt_conf'],
+                            # val_map_thres=config['val_map_thres'],
+                            # unittest_thres=config['unittest_thres'],
+                            # handmade_thres=config['handmade_thres']
+    conf = max(conf, config['min_opt_conf'])
+    val_status = val_map >= config['val_map_thres']
     results = { "mean_map_validation": val_map }
     print(f'Optimal confidence: {conf:.2f}')
     print(f'validation mAP: {val_map:.2f}')
     print('val_status', val_status)
     
     # 2. Unit tests
-    unit_test_status = run_test(
-        unit_test_yaml, model, conf=conf, results=results, gs_job_dir=gs_job_dir, prefix='unit_', 
-        mean_f1_thres=unit_mean_f1_thres, prec_thres=unit_prec_thres, recall_thres=unit_recall_thres, img_size=img_size)
+    unit_test_status = run_test(unit_test_yaml, model, conf=conf, results=results, gs_job_dir=gs_job_dir, 
+                                prefix='unit_', img_size=img_size, thres=config['unit_test'])
     print('unit_test_status', unit_test_status)
     
     # 3. Handmade tests
-    handmade_test_status = run_test(
-        handmade_test_yaml, model, conf=conf, results=results, gs_job_dir=gs_job_dir, prefix='handmade_',
-        mean_f1_thres=handmade_mean_f1_thres, prec_thres=handmade_prec_thres, recall_thres=handmade_recall_thres, img_size=img_size)
+    handmade_test_yaml = 'data/' + config['handmade_test']['dir'] + '/data.yaml'
+    _update_handmade_yaml(unit_test_yaml, handmade_test_yaml)
+
+    handmade_test_status = run_test(handmade_test_yaml, model, conf=conf, results=results, gs_job_dir=gs_job_dir, 
+                                    prefix='handmade_', img_size=img_size, thres=config['handmade_test'])
     print('handmade_test_status', handmade_test_status)
 
     # Write results
@@ -172,24 +176,14 @@ def _update_handmade_yaml(source_file, dest_file):
     with open(dest_file, 'w') as f:
         f.write(''.join(dest_lines))
     
-def main(opt):
+def main(opt, config):
     # 1. Evaluate
     validation_yaml = 'data/' + opt.train_folder + '/data.yaml'
     unit_test_yaml = 'data/' + opt.unittest_folder + '/data.yaml'
-    handmade_test_yaml = 'data/' + opt.handmade_folder + '/data.yaml'
-    _update_handmade_yaml(unit_test_yaml, handmade_test_yaml)
     model = 'runs/train/exp/weights/best.pt'
 
-    optimal_conf = evaluate(validation_yaml, unit_test_yaml, handmade_test_yaml, model, 
-                            gs_job_dir=opt.job_dir, 
-                            min_opt_conf=opt.min_opt_conf,
-                            val_map_thres=opt.val_map_thres,
-                            unit_mean_f1_thres=opt.unit_mean_f1_thres, 
-                            unit_prec_thres=opt.unit_prec_thres, 
-                            unit_recall_thres=opt.unit_recall_thres,
-                            handmade_mean_f1_thres=opt.handmade_mean_f1_thres, 
-                            handmade_prec_thres=opt.handmade_prec_thres, 
-                            handmade_recall_thres=opt.handmade_recall_thres)
+    optimal_conf = evaluate(validation_yaml, unit_test_yaml, model, 
+                            gs_job_dir=opt.job_dir, config=config)
     
     # 2. Update training results
     model_details = {
@@ -206,34 +200,27 @@ def main(opt):
         return
     
     if opt.deploy_after_train:
-        update_model_pointers(opt.job_dir, opt.model_pointers_dir)
+        update_model_pointers(opt.job_dir, config['storage']['gs_model_pointers_dir'])
         deploy(opt.circle_ci_token)
     else:
         print('Skip deploying as deploy_after_train=False')
     
+def load_configs(gs_params_file):
+    os.system(f'gsutil cp {gs_params_file} params.json')
+    with open('params.json') as f:
+        return json.load(f)
+    
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--job-dir', type=str, required=True, help='GCS location for writing checkpoints and exporting models')
-    parser.add_argument('--model-pointers-dir', type=str, required=True, help='GCS location that keeps pointers to job dirs')
     parser.add_argument('--circle-ci-token', type=str, required=True, help='to deploy in circleci')
-    parser.add_argument('--deploy-after-train', type=str, required=True, help='whether or not to deploy the trained model')
     parser.add_argument('--train-folder', type=str, required=True, help='name of the training data folder')
     parser.add_argument('--unittest-folder', type=str, required=True, help='name of the unit test data folder')
-    parser.add_argument('--handmade-folder', type=str, default='handmade', help='name of the handmade test data folder')
-    parser.add_argument('--min-opt-conf', type=float, default=0.5, help='minimum optimal confidence threshold')
-    parser.add_argument('--val-map-thres', type=float, default=0.5, help='minimum mAP of validation set')
-    parser.add_argument('--unit-mean-f1-thres', type=float, default=0.5, help='minimum average f1 of unittests')
-    parser.add_argument('--unit-prec-thres', type=float, default=0.5, help='minimum precision of all classes of unittests')
-    parser.add_argument('--unit-recall-thres', type=float, default=0.5, help='minimum recall of all classes of unittests')
-    parser.add_argument('--handmade-mean-f1-thres', type=float, default=0.5, help='minimum average f1 of handmade tests')
-    parser.add_argument('--handmade-prec-thres', type=float, default=0.5, help='minimum precision of all classes of handmade tests')
-    parser.add_argument('--handmade-recall-thres', type=float, default=0.5, help='minimum recall of all classes of handmade tests')
+    parser.add_argument('--params-file', type=str, required=True, help='params.json config file')
     parser.add_argument('--weights', type=str, default='yolov5s.pt', help='initial weights path')
     parser.add_argument('--epochs', type=int, default=300)
     parser.add_argument('--img-size', type=int, default=640, help='image sizes')
     opt = parser.parse_known_args()[0]
-    
-    # the boolean parameter was converted to a string
-    opt.deploy_after_train = opt.deploy_after_train == 'True'
-    
-    main(opt)
+    config = load_configs(opt.params_file)
+
+    main(opt, config)
