@@ -33,7 +33,7 @@ def update_metadata(optimal_conf, model_details, gs_job_dir):
     
     # 3. Copy training logs
     os.system('rm -rf runs/train/exp/weights')
-    os.system(f'gsutil cp -r runs/train/exp {gs_job_dir}')
+    os.system(f'gsutil -m cp -r runs/train/exp {gs_job_dir}')
     print(f'Copied training logs to {gs_job_dir}')
     
 def update_model_pointers(gs_job_dir, gs_model_pointers_dir):
