@@ -373,6 +373,7 @@ def compute_metrics(data,
     s = ('%20s' + '%11s' * 4) % ('Class', 'Images', 'Labels', 'P', 'R')
     p, r, f1, mp, mr = 0., 0., 0., 0., 0.
     stats, ap_class = [], []
+    img_count = 0
     for img, targets, paths, shapes in tqdm(dataloader, desc=s):
         img = img.to(device, non_blocking=True)
         img = img.half() if half else img.float()  # uint8 to fp16/32
@@ -386,9 +387,11 @@ def compute_metrics(data,
         # Run NMS
         targets[:, 2:] *= torch.Tensor([width, height, width, height]).to(device)  # to pixels
         out = non_max_suppression(out, conf_thres, iou_thres, labels=[], multi_label=True)
-
+        
         # Statistics per image
         for si, pred in enumerate(out):
+            img_count += 1
+            
             labels = targets[targets[:, 0] == si, 1:]
             nl = len(labels)
             tcls = labels[:, 0].tolist() if nl else []  # target class
@@ -452,6 +455,13 @@ def compute_metrics(data,
 
     # Compute statistics
     stats = [np.concatenate(x, 0) for x in zip(*stats)]  # to numpy
+    num_preds = len(stats[0]) if len(stats) else 0
+    print(f'#preds={num_preds}')
+    print(f'#images={img_count}')
+
+    results = {'correct': None, 'incorrect': None}
+    class_names = list(names.values())
+    
     if len(stats) and stats[0].any():
         tps, *rest = stats
         tps50 = tps[:,0]
@@ -472,13 +482,23 @@ def compute_metrics(data,
         metrics_df = pd.DataFrame(metrics, columns=['f1', 'precision', 'recall', 'name'])
         metrics_df = metrics_df.set_index('name')
 
-        class_names = list(names.values())
         confusion_df = pd.DataFrame(confusion_matrix.matrix[:-1,:-1].astype(int), columns=class_names, index=class_names)
-
-        return metrics_df, confusion_df
+        results['correct'] = (metrics_df, confusion_df)
     else:
-        print('No detections')
-        return None
+        if len(stats) > 2:
+            data = {
+                'conf': stats[1],
+                'class': [class_names[int(c)] for c in stats[2]]
+            }
+        else:
+            data = {
+                'conf': [],
+                'class': []
+            }
+        preds_df = pd.DataFrame(data)
+        results['incorrect'] = (num_preds / img_count, preds_df)
+    
+    return results
 
 def parse_opt():
     parser = argparse.ArgumentParser(prog='test.py')

@@ -73,57 +73,70 @@ def deploy(circle_ci_token):
 def run_test(yaml, model, conf, results, gs_job_dir=None, prefix='', img_size=1280, thres=None):
     """Run tests, save results, record important metrics and return status.
     """
-    print(f'EVALUATE {yaml}', flush=True)
-    metrics = compute_metrics(yaml, model, imgsz=img_size, conf_thres=conf)
-    if metrics is None:
-        return False
-        
-    metrics_df, confusion_df = metrics    
+    print(f'\nEVALUATE {yaml}', flush=True)
+    perf = compute_metrics(yaml, model, imgsz=img_size, conf_thres=conf)
     save_folder = Path('__temp__')
     save_folder.mkdir(exist_ok=True)
-    metrics_file = save_folder/(prefix + 'metrics.csv')
-    metrics_df.to_csv(metrics_file)
-    confusion_file = save_folder/(prefix + 'confusions.csv')
-    confusion_df.to_csv(confusion_file)
     
-    # Record important metrics
-    stats = results[prefix + 'tests'] = {}
-    stats['mean_f1'] = metrics_df['f1'].mean()
-    stats['highest_f1'] = metrics_df.sort_values('f1', ascending=False).iloc[:5]['f1'].to_dict()
-    stats['lowest_f1'] = metrics_df.sort_values('f1', ascending=True).iloc[:5]['f1'].to_dict()
-    stats['lower_precision_threshold'] = metrics_df[metrics_df['precision'] < thres['prec']]['precision'].sort_values().to_dict()
-    stats['lower_recall_threshold'] = metrics_df[metrics_df['recall'] < thres['recall']]['recall'].sort_values().to_dict()
+    if 'mean_f1' in thres: # Normal test
+        if 'correct' not in perf:
+            return False
+        
+        metrics_df, confusion_df = perf['correct']
+        metrics_file = save_folder/(prefix + 'metrics.csv')
+        metrics_df.to_csv(metrics_file)
+        confusion_file = save_folder/(prefix + 'confusions.csv')
+        confusion_df.to_csv(confusion_file)
+
+        # Record important metrics
+        stats = results[prefix] = {}
+        stats['mean_f1'] = metrics_df['f1'].mean()
+        stats['highest_f1'] = metrics_df.sort_values('f1', ascending=False).iloc[:5]['f1'].to_dict()
+        stats['lowest_f1'] = metrics_df.sort_values('f1', ascending=True).iloc[:5]['f1'].to_dict()
+        stats['lower_precision_threshold'] = metrics_df[metrics_df['precision'] < thres['prec']]['precision'].sort_values().to_dict()
+        stats['lower_recall_threshold'] = metrics_df[metrics_df['recall'] < thres['recall']]['recall'].sort_values().to_dict()
+
+        print(prefix)
+        print(f'  Mean of F1 for all classes: {stats["mean_f1"]:.2f}')
+        print(f'  Number of classes with precisions lower than {thres["prec"]}: {len(stats["lower_precision_threshold"])}')
+        print(f'  Number of classes with recalls lower than {thres["recall"]}: {len(stats["lower_recall_threshold"])}')
+        
+        if gs_job_dir:
+            gs_job_dir = gs_job_dir + 'stats/'
+            print('  Copy metrics and confusions files to gscloud')
+            os.system(f'gsutil cp {metrics_file} {gs_job_dir}')
+            os.system(f'gsutil cp {confusion_file} {gs_job_dir}')
+
+        # Test fails if either mean f1 is lower than threshold or precision/recall of any class is lower than threshold
+        return stats['mean_f1'] >= thres['mean_f1'] and not stats['lower_precision_threshold'] and not stats['lower_precision_threshold']
+    else: # False positives test
+        rate, preds_df = perf['incorrect']
+        preds_file = save_folder/(prefix + 'false_preds.csv')
+        preds_df.to_csv(preds_file, index=None)
     
-    print(prefix + 'tests')
-    print(f'  Mean of F1 for all classes: {stats["mean_f1"]:.2f}')
-    print(f'  Number of classes with precisions lower than {thres["prec"]}: {len(stats["lower_precision_threshold"])}')
-    print(f'  Number of classes with recalls lower than {thres["recall"]}: {len(stats["lower_recall_threshold"])}')
+         # Record important metrics
+        stats = results[prefix] = {}
+        stats['preds_per_image'] = rate
+        print(prefix)
+        print(f'  #false predictions per image: {rate:.2f}')
+        
+        if gs_job_dir:
+            gs_job_dir = gs_job_dir + 'stats/'
+            print('  Copy false predictions to gscloud')
+            os.system(f'gsutil cp {preds_file} {gs_job_dir}')
+            
+        return rate <= thres['preds_per_image']
     
-    if gs_job_dir:
-        gs_job_dir = gs_job_dir + 'stats/'
-        print('  Copy metrics and confusions files to gscloud')
-        os.system(f'gsutil cp {metrics_file} {gs_job_dir}')
-        os.system(f'gsutil cp {confusion_file} {gs_job_dir}')
-    
-    # Test fails if either mean f1 is lower than threshold or precision/recall of any class is lower than threshold
-    return stats['mean_f1'] >= thres['mean_f1'] and not stats['lower_precision_threshold'] and not stats['lower_precision_threshold']
-    
-def evaluate(validation_yaml, unit_test_yaml, model, 
-             gs_job_dir=None, img_size=1280, config=None):
+def evaluate(validation_yaml, unit_test_yaml, model, gs_job_dir=None, img_size=1280, config=None):
     """Evaluate the model against a number of tests.
     Return None if the model fails. Return the confidence threshold if it's sucessful.
     """
-    print('\n==================== EVALUATING MODELS ===================\n')
+    print('\n==================== EVALUATING MODEL ===================\n')
     
     # 1a. Compute validation mAP
     # 1b. Retrieve optimal confidence threshold for following metrics calculation and inference usage
-    print(f'EVALUATE {validation_yaml}', flush=True)
+    print(f'EVALUATE validation set {validation_yaml}', flush=True)
     val_map, conf = run(validation_yaml, model, imgsz=img_size, get_optimal_conf=True)
-
-                            # min_opt_conf=config['min_opt_conf'],
-                            # val_map_thres=config['val_map_thres'],
-                            # unittest_thres=config['unittest_thres'],
-                            # handmade_thres=config['handmade_thres']
     conf = max(conf, config['min_opt_conf'])
     val_status = val_map >= config['val_map_thres']
     results = { "mean_map_validation": val_map }
@@ -133,16 +146,17 @@ def evaluate(validation_yaml, unit_test_yaml, model,
     
     # 2. Unit tests
     unit_test_status = run_test(unit_test_yaml, model, conf=conf, results=results, gs_job_dir=gs_job_dir, 
-                                prefix='unit_', img_size=img_size, thres=config['unit_test'])
+                                prefix='unit_test_', img_size=img_size, thres=config['unit_test'])
     print('unit_test_status', unit_test_status)
     
-    # 3. Handmade tests
-    handmade_test_yaml = 'data/' + config['handmade_test']['dir'] + '/data.yaml'
-    _update_handmade_yaml(unit_test_yaml, handmade_test_yaml)
-
-    handmade_test_status = run_test(handmade_test_yaml, model, conf=conf, results=results, gs_job_dir=gs_job_dir, 
-                                    prefix='handmade_', img_size=img_size, thres=config['handmade_test'])
-    print('handmade_test_status', handmade_test_status)
+    # 3. Manual tests
+    manual_tests_statuses = []
+    for k, v in config['tests'].items():
+        test_yaml = 'data/' + v['dir'] + '/data.yaml'
+        _update_static_yaml(unit_test_yaml, test_yaml)
+        status = run_test(test_yaml, model, conf=conf, results=results, gs_job_dir=gs_job_dir, 
+                          prefix=k+'_', img_size=img_size, thres=v)
+        print(k + '_status', status)
 
     # Write results
     save_folder = Path('__temp__')
@@ -155,15 +169,15 @@ def evaluate(validation_yaml, unit_test_yaml, model,
         print('Copy results file to gscloud')
         os.system(f'gsutil cp {results_file} {gs_job_dir}')
         
-    if val_status and unit_test_status and handmade_test_status:
+    if all([val_status, unit_test_status] + manual_tests_statuses):
         print('All tests suceeded')
         return conf
     else:
         print('Tests failed; see results.json for more details')
         return None
 
-def _update_handmade_yaml(source_file, dest_file):
-    """handmade test is static with a small number of classes. 
+def _update_static_yaml(source_file, dest_file):
+    """handmade/false positive tests are static with a small number of classes. 
     However the classes in its yaml file should be the same as in the unittests 
     to avoid index error in prediction"""
     with open(source_file) as f:
