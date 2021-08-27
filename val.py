@@ -459,7 +459,7 @@ def compute_metrics(data,
     print(f'#preds={num_preds}')
     print(f'#images={img_count}')
 
-    results = {'correct': None, 'incorrect': None}
+    results = {}
     class_names = list(names.values())
     
     if len(stats) and stats[0].any():

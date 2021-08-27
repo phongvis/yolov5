@@ -156,6 +156,7 @@ def evaluate(validation_yaml, unit_test_yaml, model, gs_job_dir=None, img_size=1
         _update_static_yaml(unit_test_yaml, test_yaml)
         status = run_test(test_yaml, model, conf=conf, results=results, gs_job_dir=gs_job_dir, 
                           prefix=k+'_', img_size=img_size, thres=v)
+        manual_tests_statuses.append(status)
         print(k + '_status', status)
 
     # Write results
@@ -213,7 +214,7 @@ def main(opt, config):
         print('Training finished with poor results. No deployment.')
         return
     
-    if opt.deploy_after_train:
+    if config['deploy_after_train']:
         update_model_pointers(opt.job_dir, config['storage']['gs_model_pointers_dir'])
         deploy(opt.circle_ci_token)
     else:
