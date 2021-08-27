@@ -108,7 +108,7 @@ def run_test(yaml, model, conf, results, gs_job_dir=None, prefix='', img_size=12
             os.system(f'gsutil cp {confusion_file} {gs_job_dir}')
 
         # Test fails if either mean f1 is lower than threshold or precision/recall of any class is lower than threshold
-        return stats['mean_f1'] >= thres['mean_f1'] and not stats['lower_precision_threshold'] and not stats['lower_precision_threshold']
+        return stats['mean_f1'] >= thres['mean_f1'] and not stats['lower_precision_threshold'] and not stats['lower_recall_threshold']
     else: # False positives test
         rate, preds_df = perf['incorrect']
         preds_file = save_folder/(prefix + 'false_preds.csv')
