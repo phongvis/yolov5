@@ -11,6 +11,11 @@ import pytz
 
 from val import run, compute_metrics
 
+def copy_training_logs(gs_job_dir):
+    os.system('rm -rf runs/train/exp/weights')
+    os.system(f'gsutil -m cp -r runs/train/exp {gs_job_dir}')
+    print(f'Copied training logs to {gs_job_dir}')
+
 def update_metadata(optimal_conf, model_details, gs_job_dir):
     # 1. meta.json
     meta = { 
@@ -30,11 +35,6 @@ def update_metadata(optimal_conf, model_details, gs_job_dir):
     # 2. best.pt
     os.system(f'gsutil cp {model_details["model"]} {gs_job_dir}best.pt')
     print(f'Copied best.pt to {gs_job_dir}')
-    
-    # 3. Copy training logs
-    os.system('rm -rf runs/train/exp/weights')
-    os.system(f'gsutil -m cp -r runs/train/exp {gs_job_dir}')
-    print(f'Copied training logs to {gs_job_dir}')
     
 def update_model_pointers(gs_job_dir, gs_model_pointers_dir):
     # model.txt
@@ -192,7 +192,10 @@ def _update_static_yaml(source_file, dest_file):
         f.write(''.join(dest_lines))
     
 def main(opt, config):
-    # 1. Evaluate
+    # 1. Copy trained model and logs
+    copy_training_logs(opt.job_dir)
+
+    # 2. Evaluate
     validation_yaml = 'data/' + opt.train_folder + '/data.yaml'
     unit_test_yaml = 'data/' + opt.unittest_folder + '/data.yaml'
     model = 'runs/train/exp/weights/best.pt'
@@ -200,7 +203,7 @@ def main(opt, config):
     optimal_conf = evaluate(validation_yaml, unit_test_yaml, model, 
                             gs_job_dir=opt.job_dir, config=config)
     
-    # 2. Update training results
+    # 3. Update training results
     model_details = {
         'size': opt.img_size,
         'base': opt.weights,
@@ -209,7 +212,7 @@ def main(opt, config):
     }
     update_metadata(optimal_conf, model_details, opt.job_dir)
     
-    # 3. Deploy
+    # 4. Deploy
     if optimal_conf is None:
         print('Training finished with poor results. No deployment.')
         return
