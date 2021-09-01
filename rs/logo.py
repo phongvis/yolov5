@@ -11,7 +11,7 @@ import pytz
 
 from val import run, compute_metrics
 
-def update_metadata(optimal_conf, model_details, gs_job_dir):
+def update_metadata(optimal_conf, model_details, gs_job_dir, data_yaml):
     # 1. meta.json
     meta = { 
         'size': model_details['size'],
@@ -26,12 +26,16 @@ def update_metadata(optimal_conf, model_details, gs_job_dir):
         f.write(json.dumps(meta))
     os.system(f'gsutil cp {meta_file} {gs_job_dir}')
     print(f'Copied meta.json to {gs_job_dir}')
-    
+
     # 2. best.pt
     os.system(f'gsutil cp {model_details["model"]} {gs_job_dir}best.pt')
     print(f'Copied best.pt to {gs_job_dir}')
     
-    # 3. Copy training logs
+    # 3. data.yaml
+    os.system(f'gsutil cp {data_yaml} {gs_job_dir}')
+    print(f'Copied data.yaml to {gs_job_dir}')
+    
+    # 4. Copy training logs
     os.system('rm -rf runs/train/exp/weights')
     os.system(f'gsutil -m cp -r runs/train/exp {gs_job_dir}')
     print(f'Copied training logs to {gs_job_dir}')
@@ -207,7 +211,7 @@ def main(opt, config):
         'epochs': opt.epochs,
         'model': model
     }
-    update_metadata(optimal_conf, model_details, opt.job_dir)
+    update_metadata(optimal_conf, model_details, opt.job_dir, validation_yaml)
     
     # 3. Deploy
     if optimal_conf is None:
