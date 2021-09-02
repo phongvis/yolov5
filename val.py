@@ -315,7 +315,7 @@ def run(data,
 def compute_metrics(data,
         weights=None,  # model.pt path(s)
         batch_size=32,  # batch size
-        imgsz=640,  # inference size (pixels)
+        imgsz=1280,  # inference size (pixels)
         conf_thres=0.5,  # confidence threshold
         iou_thres=0.5,  # NMS IoU threshold
         task='val',  # train, val, test, speed or study
