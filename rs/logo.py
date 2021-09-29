@@ -47,7 +47,7 @@ def update_model_pointers(gs_job_dir, gs_model_pointers_dir):
     model_type = 'brands-general'
     model_file = save_folder/(model_type + '.txt')
     with open(model_file, 'w') as f:
-        f.write(gs_job_dir)
+        f.write(gs_job_dir[5:-1])
         
     # 2 files: 1 for current and 1 for versioning
     os.system(f'gsutil cp {model_file} {gs_model_pointers_dir}')
