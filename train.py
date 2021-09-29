@@ -132,6 +132,9 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
 
     # Freeze
     freeze = []  # parameter names to freeze (full or partial)
+    if opt.freeze:
+        freeze = [f'model.{x}.' for x in range(12)]  # layers to freeze 
+    print(f'freezing {len(freeze)} layers')
     for k, v in model.named_parameters():
         v.requires_grad = True  # train all layers
         if any(x in k for x in freeze):
@@ -488,6 +491,7 @@ def parse_opt(known=False):
     parser.add_argument('--epochs', type=int, default=300)
     parser.add_argument('--batch-size', type=int, default=16, help='total batch size for all GPUs')
     parser.add_argument('--img-size', nargs='+', type=int, default=[640, 640], help='[train, test] image sizes')
+    parser.add_argument('--freeze', action='store_true', help='freezing backbone layers')
     parser.add_argument('--rect', action='store_true', help='rectangular training')
     parser.add_argument('--resume', nargs='?', const=True, default=False, help='resume most recent training')
     parser.add_argument('--nosave', action='store_true', help='only save final checkpoint')
