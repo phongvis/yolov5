@@ -16,7 +16,7 @@ def download(gs_data_dir, train_folder, unittest_folder, manual_folders):
     print('\n==================== DOWNLOADING DATA ===================\n')
     download_bucket(gs_data_dir, train_folder)
     download_bucket(gs_data_dir, unittest_folder)
-    for k, v in manual_folders.items():
+    for v in manual_folders.values():
         download_bucket(gs_data_dir, v['dir'])
 
 def load_configs(gs_params_file):
