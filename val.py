@@ -370,7 +370,7 @@ def compute_metrics(data,
     seen = 0
     confusion_matrix = ConfusionMatrix(nc=nc, conf=conf_thres, iou_thres=iou_thres)
     names = {k: v for k, v in enumerate(model.names if hasattr(model, 'names') else model.module.names)}
-    s = ('%20s' + '%11s' * 4) % ('Class', 'Images', 'Labels', 'P', 'R')
+    s = ('%20s' + '%11s' * 5) % ('Class', 'Images', 'Labels', 'P', 'R', 'F1')
     p, r, f1, mp, mr = 0., 0., 0., 0., 0.
     stats, ap_class = [], []
     img_count = 0
@@ -448,7 +448,7 @@ def compute_metrics(data,
                                 correct[pi[j]] = ious[j] > iouv  # iou_thres is 1xn
                                 if len(detected) == nl:  # all targets already located in image
                                     break
-
+                
             # Append statistics (correct, conf, pcls, tcls)
             stats.append((correct.cpu(), pred[:, 4].cpu(), pred[:, 5].cpu(), tcls))
 
@@ -470,7 +470,7 @@ def compute_metrics(data,
         nt = np.bincount(stats[3].astype(np.int64), minlength=nc)  # number of targets per class
 
         # Print results
-        pf = '%20s' + '%12i' * 2 + '%12.3g' * 3  # print format
+        pf = '%20s' + '%11i' * 2 + '%11.3g' * 3  # print format
         print(pf % ('all', seen, nt.sum(), mp, mr, mf1))
 
         # Print results per class
@@ -499,6 +499,196 @@ def compute_metrics(data,
         results['incorrect'] = (num_preds / img_count, preds_df)
     
     return results
+
+@torch.no_grad()
+def export_detailed_preds(data,
+        weights=None,  # model.pt path(s)
+        batch_size=32,  # batch size
+        imgsz=1280,  # inference size (pixels)
+        conf_thres=0.5,  # confidence threshold
+        iou_thres=0.5,  # NMS IoU threshold
+        task='val',  # train, val, test, speed or study
+        device='',  # cuda device, i.e. 0 or 0,1,2,3 or cpu
+        augment=False,  # augmented inference
+        verbose=False,  # verbose output
+        project='runs/test',  # save to project/name
+        name='exp',  # save to project/name
+        exist_ok=False,  # existing project/name ok, do not increment
+        half=True,  # use FP16 half-precision inference
+        save_dir=Path(''),
+        plots=True
+        ):
+
+    # Device
+    device = select_device(device, batch_size=batch_size)
+
+    # Directories
+    save_dir = increment_path(Path(project) / name, exist_ok=exist_ok)  # increment run
+    (save_dir / 'labels').mkdir(parents=True, exist_ok=True)  # make dir
+    (save_dir / 'fn').mkdir(parents=True, exist_ok=True)  # make dir
+
+    # Load model
+    model = attempt_load(weights, map_location=device)  # load FP32 model
+    gs = max(int(model.stride.max()), 32)  # grid size (max stride)
+    imgsz = check_img_size(imgsz, s=gs)  # check image size
+
+    # Data
+    with open(data) as f:
+        data = yaml.safe_load(f)
+    check_dataset(data)  # check
+
+    # Half
+    half &= device.type != 'cpu'  # half precision only supported on CUDA
+    if half:
+        model.half()
+
+    # Configure
+    model.eval()
+    nc = int(data['nc'])  # number of classes
+    iouv = torch.linspace(0.5, 0.95, 10).to(device)  # iou vector for mAP@0.5:0.95
+    niou = iouv.numel()
+
+    # Dataloader
+    if device.type != 'cpu':
+        model(torch.zeros(1, 3, imgsz, imgsz).to(device).type_as(next(model.parameters())))  # run once
+    task = task if task in ('train', 'val', 'test') else 'val'  # path to train/val/test images
+    dataloader = create_dataloader(data[task], imgsz, batch_size, gs, pad=0.0, rect=True,
+                                    prefix=colorstr(f'{task}: '))[0]
+
+    seen = 0
+    confusion_matrix = ConfusionMatrix(nc=nc, conf=conf_thres, iou_thres=iou_thres)
+    names = {k: v for k, v in enumerate(model.names if hasattr(model, 'names') else model.module.names)}
+    s = ('%20s' + '%11s' * 6) % ('Class', 'Labels', 'Preds', 'Corrects', 'P', 'R', 'F1')
+    p, r, f1, mp, mr = 0., 0., 0., 0., 0.
+    stats, ap_class = [], []
+    img_count = 0
+    num_correct = 0
+    for img, targets, paths, shapes in tqdm(dataloader, desc=s):
+        img = img.to(device, non_blocking=True)
+        img = img.half() if half else img.float()  # uint8 to fp16/32
+        img /= 255.0  # 0 - 255 to 0.0 - 1.0
+        targets = targets.to(device)
+        _, _, height, width = img.shape  # batch size, channels, height, width
+
+        # Run model
+        out, _ = model(img, augment=augment)  # inference and training outputs
+
+        # Run NMS
+        targets[:, 2:] *= torch.Tensor([width, height, width, height]).to(device)  # to pixels
+        out = non_max_suppression(out, conf_thres, iou_thres, labels=[], multi_label=True)
+        
+        # Statistics per image
+        for si, pred in enumerate(out):
+            img_count += 1
+            
+            labels = targets[targets[:, 0] == si, 1:]
+            nl = len(labels)
+            tcls = labels[:, 0].tolist() if nl else []  # target class
+            path = Path(paths[si])
+            seen += 1
+
+            if len(pred) == 0:
+                if nl:
+                    stats.append((torch.zeros(0, niou, dtype=torch.bool), torch.Tensor(), torch.Tensor(), tcls))
+
+                contents = []
+                for line in labels.tolist():
+                    class_idx = int(line[0])
+                    cx, cy, nw, nh = line[1] / width, line[2] / height, line[3] / width, line[4] / height
+                    contents.append(f'{class_idx} {cx:.6} {cy:.6} {nw:.6} {nh:.6}')
+
+                with open(save_dir / 'fn' / (path.stem + '.txt'), 'w') as f:
+                    f.write('\n'.join(contents))
+
+            # Predictions
+            predn = pred.clone()
+            scale_coords(img[si].shape[1:], predn[:, :4], shapes[si][0], shapes[si][1])  # native-space pred
+
+            # Assign all predictions as incorrect
+            correct = torch.zeros(pred.shape[0], niou, dtype=torch.bool, device=device)
+            if nl:
+                detected = []  # target indices
+                tcls_tensor = labels[:, 0]
+
+                # target boxes
+                tbox = xywh2xyxy(labels[:, 1:5])
+                scale_coords(img[si].shape[1:], tbox, shapes[si][0], shapes[si][1])  # native-space labels
+                if plots:
+                    confusion_matrix.process_batch(predn, torch.cat((labels[:, 0:1], tbox), 1))
+
+                # Per target class
+                for cls in torch.unique(tcls_tensor):
+                    ti = (cls == tcls_tensor).nonzero(as_tuple=False).view(-1)  # target indices
+                    pi = (cls == pred[:, 5]).nonzero(as_tuple=False).view(-1)  # prediction indices
+
+                    # Search for detections
+                    if pi.shape[0]:
+                        # Prediction to target ious
+                        ious, i = box_iou(predn[pi, :4], tbox[ti]).max(1)  # best ious, indices
+
+                        # Append detections
+                        detected_set = set()
+                        for j in (ious > iouv[0]).nonzero(as_tuple=False):
+                            d = ti[i[j]]  # detected target
+                            if d.item() not in detected_set:
+                                detected_set.add(d.item())
+                                detected.append(d)
+                                correct[pi[j]] = ious[j] > iouv  # iou_thres is 1xn
+                                num_correct += 1
+                                if len(detected) == nl:  # all targets already located in image
+                                    break
+                
+                # Save false negatives
+                if len(detected) < nl:
+                    detected_set = set(d.item() for d in detected)
+                    fn_set = set(range(len(labels))).difference(detected_set)
+                    labels = labels.tolist()
+                    contents = []
+                    for i in fn_set:
+                        line = labels[i] 
+                        class_idx = int(line[0])
+                        cx, cy, nw, nh = line[1] / width, line[2] / height, line[3] / width, line[4] / height
+                        contents.append(f'{class_idx} {cx:.6} {cy:.6} {nw:.6} {nh:.6}')
+
+                    with open(save_dir / 'fn' / (path.stem + '.txt'), 'w') as f:
+                        f.write('\n'.join(contents))
+
+            # Append to text file
+            gn = torch.tensor(shapes[si][0])[[1, 0, 1, 0]]  # normalization gain whwh
+            for idx, (*xyxy, conf, cls) in enumerate(predn.tolist()):
+                xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
+                line = (cls, *xywh, conf)
+                
+                # Get correct at 0.5 iou which is the first index
+                is_pred_correct = correct.numpy()[idx][0]
+                line = (*line, is_pred_correct)
+
+                with open(save_dir / 'labels' / (path.stem + '.txt'), 'a') as f:
+                    f.write(('%g ' * len(line)).rstrip() % line + '\n')
+
+            # Append statistics (correct, conf, pcls, tcls)
+            stats.append((correct.cpu(), pred[:, 4].cpu(), pred[:, 5].cpu(), tcls))
+
+    # Compute statistics
+    stats = [np.concatenate(x, 0) for x in zip(*stats)]  # to numpy
+    num_preds = len(stats[0]) if len(stats) else 0
+    print(f'#images={img_count}')
+
+    if len(stats) and stats[0].any():
+        tps, *rest = stats
+        tps50 = tps[:,0]
+        p, r, f1, ap_class = compute_f1(tps50, *rest)
+        mp, mr, mf1 = p.mean(), r.mean(), f1.mean()
+        nt = np.bincount(stats[3].astype(np.int64), minlength=nc)  # number of targets per class
+
+        # Print results
+        pf = '%20s' + '%11i' * 3 + '%11.3g' * 3  # print format
+        print(pf % ('all', nt.sum(), num_preds, num_correct, mp, mr, mf1))
+
+        # Print results per class
+        if (verbose or (nc < 50)) and nc > 1 and len(stats):
+            for i, c in enumerate(ap_class):
+                print(pf % (names[c], nt[c], 0 if p[i] == 0 else round(nt[c] * r[i] / p[i]), round(nt[c] * r[i]), p[i], r[i], f1[i]))
 
 def parse_opt():
     parser = argparse.ArgumentParser(prog='test.py')
