@@ -526,6 +526,7 @@ def export_detailed_preds(data,
     save_dir = increment_path(Path(project) / name, exist_ok=exist_ok)  # increment run
     (save_dir / 'labels').mkdir(parents=True, exist_ok=True)  # make dir
     (save_dir / 'fn').mkdir(parents=True, exist_ok=True)  # make dir
+    (save_dir / 'origin_labels_with_preds').mkdir(parents=True, exist_ok=True)  # make dir
 
     # Load model
     model = attempt_load(weights, map_location=device)  # load FP32 model
@@ -591,14 +592,21 @@ def export_detailed_preds(data,
                 if nl:
                     stats.append((torch.zeros(0, niou, dtype=torch.bool), torch.Tensor(), torch.Tensor(), tcls))
 
-                contents = []
-                for line in labels.tolist():
-                    class_idx = int(line[0])
-                    cx, cy, nw, nh = line[1] / width, line[2] / height, line[3] / width, line[4] / height
-                    contents.append(f'{class_idx} {cx:.6} {cy:.6} {nw:.6} {nh:.6}')
+                    # All labels are false negatives in this case
+                    contents = []
+                    origin_contents = []
+                    for line in labels.tolist():
+                        class_idx = int(line[0])
+                        cx, cy, nw, nh = line[1] / width, line[2] / height, line[3] / width, line[4] / height
+                        contents.append(f'{class_idx} {cx:.6} {cy:.6} {nw:.6} {nh:.6}')
+                        origin_contents.append(f'{class_idx} {cx:.6} {cy:.6} {nw:.6} {nh:.6} 0.0 0')
 
-                with open(save_dir / 'fn' / (path.stem + '.txt'), 'w') as f:
-                    f.write('\n'.join(contents))
+                    with open(save_dir / 'fn' / (path.stem + '.txt'), 'w') as f:
+                        f.write('\n'.join(contents))
+                    with open(save_dir / 'origin_labels_with_preds' / (path.stem + '.txt'), 'w') as f:
+                        f.write('\n'.join(origin_contents))
+
+                continue
 
             # Predictions
             predn = pred.clone()
@@ -607,7 +615,7 @@ def export_detailed_preds(data,
             # Assign all predictions as incorrect
             correct = torch.zeros(pred.shape[0], niou, dtype=torch.bool, device=device)
             if nl:
-                detected = []  # target indices
+                detected = {}  # dict of {target index: predicted prob}
                 tcls_tensor = labels[:, 0]
 
                 # target boxes
@@ -632,17 +640,16 @@ def export_detailed_preds(data,
                             d = ti[i[j]]  # detected target
                             if d.item() not in detected_set:
                                 detected_set.add(d.item())
-                                detected.append(d)
+                                detected[d.item()] = pred[pi[j][0].item()][4]
                                 correct[pi[j]] = ious[j] > iouv  # iou_thres is 1xn
                                 num_correct += 1
                                 if len(detected) == nl:  # all targets already located in image
                                     break
                 
                 # Save false negatives
+                labels = labels.tolist()
                 if len(detected) < nl:
-                    detected_set = set(d.item() for d in detected)
-                    fn_set = set(range(len(labels))).difference(detected_set)
-                    labels = labels.tolist()
+                    fn_set = set(range(len(labels))).difference(detected.keys())
                     contents = []
                     for i in fn_set:
                         line = labels[i] 
@@ -652,6 +659,21 @@ def export_detailed_preds(data,
 
                     with open(save_dir / 'fn' / (path.stem + '.txt'), 'w') as f:
                         f.write('\n'.join(contents))
+
+                # Save origin labels with associated probs and correctness
+                contents = []
+                for i, line in enumerate(labels):
+                    class_idx = int(line[0])
+                    cx, cy, nw, nh = line[1] / width, line[2] / height, line[3] / width, line[4] / height
+                    content = f'{class_idx} {cx:.6} {cy:.6} {nw:.6} {nh:.6}'
+                    if i in detected:
+                        content += f' {detected[i].item():.6} 1'
+                    else:
+                        content += ' 0.0 0'
+                    contents.append(content)
+                with open(save_dir / 'origin_labels_with_preds' / (path.stem + '.txt'), 'w') as f:
+                        f.write('\n'.join(contents))
+
 
             # Append to text file
             gn = torch.tensor(shapes[si][0])[[1, 0, 1, 0]]  # normalization gain whwh
