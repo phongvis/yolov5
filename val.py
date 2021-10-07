@@ -660,7 +660,7 @@ def export_detailed_preds(data,
                 line = (cls, *xywh, conf)
                 
                 # Get correct at 0.5 iou which is the first index
-                is_pred_correct = correct.numpy()[idx][0]
+                is_pred_correct = correct.cpu().numpy()[idx][0]
                 line = (*line, is_pred_correct)
 
                 with open(save_dir / 'labels' / (path.stem + '.txt'), 'a') as f:
