@@ -599,7 +599,7 @@ def export_detailed_preds(data,
                         class_idx = int(line[0])
                         cx, cy, nw, nh = line[1] / width, line[2] / height, line[3] / width, line[4] / height
                         contents.append(f'{class_idx} {cx:.6} {cy:.6} {nw:.6} {nh:.6}')
-                        origin_contents.append(f'{class_idx} {cx:.6} {cy:.6} {nw:.6} {nh:.6} 0.0 0')
+                        origin_contents.append(f'{class_idx} {cx:.6} {cy:.6} {nw:.6} {nh:.6} 0.0')
 
                     with open(save_dir / 'fn' / (path.stem + '.txt'), 'w') as f:
                         f.write('\n'.join(contents))
@@ -667,9 +667,9 @@ def export_detailed_preds(data,
                     cx, cy, nw, nh = line[1] / width, line[2] / height, line[3] / width, line[4] / height
                     content = f'{class_idx} {cx:.6} {cy:.6} {nw:.6} {nh:.6}'
                     if i in detected:
-                        content += f' {detected[i].item():.6} 1'
+                        content += f' {detected[i].item():.6}'
                     else:
-                        content += ' 0.0 0'
+                        content += ' 0.0'
                     contents.append(content)
                 with open(save_dir / 'origin_labels_with_preds' / (path.stem + '.txt'), 'w') as f:
                         f.write('\n'.join(contents))
