@@ -224,8 +224,9 @@ def main(opt, config):
     else:
         print('Skip deploying as deploy_after_train=False')
     
-def load_configs(gs_params_file):
-    os.system(f'gsutil cp {gs_params_file} params.json')
+def load_configs(gs_job_dir):
+    # os.system(f'gsutil cp {gs_params_file} params.json')
+    os.system(f'gsutil cp {gs_job_dir}params.json params.json')
     with open('params.json') as f:
         return json.load(f)
     
@@ -235,11 +236,15 @@ if __name__ == '__main__':
     parser.add_argument('--circle-ci-token', type=str, required=True, help='to deploy in circleci')
     parser.add_argument('--train-folder', type=str, required=True, help='name of the training data folder')
     parser.add_argument('--unittest-folder', type=str, required=True, help='name of the unit test data folder')
-    parser.add_argument('--params-file', type=str, required=True, help='params.json config file')
+    # parser.add_argument('--params-file', type=str, required=True, help='params.json config file')
     parser.add_argument('--weights', type=str, default='yolov5s.pt', help='initial weights path')
     parser.add_argument('--epochs', type=int, default=300)
     parser.add_argument('--img-size', type=int, default=640, help='image sizes')
     opt = parser.parse_known_args()[0]
-    config = load_configs(opt.params_file)
+    config = load_configs(opt.job_dir)
+
+
+    print('----------------')
+    print(config)
 
     main(opt, config)
