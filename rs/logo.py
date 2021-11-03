@@ -197,7 +197,7 @@ def _update_static_yaml(source_file, dest_file):
     
 def main(opt, config):
     # 0. Start with updating the status
-    update_status('running\nevaluation', opt.gs_job_dir)
+    update_status('running\nevaluation', opt.job_dir)
 
     # 1. Evaluate
     validation_yaml = 'data/' + opt.train_folder + '/data.yaml'
@@ -219,16 +219,16 @@ def main(opt, config):
     # 3. Deploy
     if optimal_conf is None:
         print('Training finished with poor results. No deployment.')
-        update_status('failed\nevaluation', opt.gs_job_dir)
+        update_status('failed\nevaluation', opt.job_dir)
         return
     
     if config['deploy_after_train']:
         update_model_pointers(opt.job_dir, config['storage']['gs_model_pointers_dir'])
         deploy(opt.circle_ci_token)
-        update_status('running\ndeployment', opt.gs_job_dir)
+        update_status('running\ndeployment', opt.job_dir)
     else:
         print('Skip deploying as deploy_after_train=False')
-        update_status('succeeded\nevaluation', opt.gs_job_dir)
+        update_status('succeeded\nevaluation', opt.job_dir)
     
 def load_configs(gs_params_file):
     os.system(f'gsutil cp {gs_params_file} params.json')
