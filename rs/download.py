@@ -27,7 +27,7 @@ def load_configs(gs_params_file):
 def update_status(gs_job_dir):
     """Update status in to a 'status' file in the GS job dir.
     """
-    with open('tmp_file') as f:
+    with open('tmp_file', 'w') as f:
         f.write('running')
     os.system(f'gsutil cp tmp_file {gs_job_dir}status')
     
