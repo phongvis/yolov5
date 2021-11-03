@@ -196,6 +196,9 @@ def _update_static_yaml(source_file, dest_file):
         f.write(''.join(dest_lines))
     
 def main(opt, config):
+    # 0. Start with updating the status
+    update_status('running\nevaluation', opt.gs_job_dir)
+
     # 1. Evaluate
     validation_yaml = 'data/' + opt.train_folder + '/data.yaml'
     unit_test_yaml = 'data/' + opt.unittest_folder + '/data.yaml'
@@ -216,18 +219,28 @@ def main(opt, config):
     # 3. Deploy
     if optimal_conf is None:
         print('Training finished with poor results. No deployment.')
+        update_status('failed\nevaluation', opt.gs_job_dir)
         return
     
     if config['deploy_after_train']:
         update_model_pointers(opt.job_dir, config['storage']['gs_model_pointers_dir'])
         deploy(opt.circle_ci_token)
+        update_status('running\ndeployment', opt.gs_job_dir)
     else:
         print('Skip deploying as deploy_after_train=False')
+        update_status('succeeded\nevaluation', opt.gs_job_dir)
     
 def load_configs(gs_params_file):
     os.system(f'gsutil cp {gs_params_file} params.json')
     with open('params.json') as f:
         return json.load(f)
+
+def update_status(content, gs_job_dir):
+    """Update status in to a 'status' file in the GS job dir.
+    """
+    with open('tmp_file') as f:
+        f.write(content)
+    os.system(f'gsutil cp tmp_file {gs_job_dir}status')
     
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

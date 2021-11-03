@@ -23,12 +23,21 @@ def load_configs(gs_params_file):
     os.system(f'gsutil cp {gs_params_file} params.json')
     with open('params.json') as f:
         return json.load(f)
+
+def update_status(gs_job_dir):
+    """Update status in to a 'status' file in the GS job dir.
+    """
+    with open('tmp_file') as f:
+        f.write('running')
+    os.system(f'gsutil cp tmp_file {gs_job_dir}status')
     
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--train-folder', type=str, required=True, help='name of the training data folder')
     parser.add_argument('--unittest-folder', type=str, required=True, help='name of the unit test data folder')
     parser.add_argument('--params-file', type=str, required=True, help='params.json config file')
+    parser.add_argument('--job-dir', type=str, required=True, help='job directory')
     opt = parser.parse_known_args()[0]
     config = load_configs(opt.params_file)
+    update_status(opt.job_dir)
     download(config['storage']['gs_data_dir'], opt.train_folder, opt.unittest_folder, config['tests'])
