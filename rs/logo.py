@@ -57,7 +57,7 @@ def update_model_pointers(gs_job_dir, gs_model_pointers_dir):
     print(f'Copied model pointers to {gs_model_pointers_dir}')
     
 def deploy(circle_ci_token):
-    """Make circleci rebuild.
+    """Make circleci rebuild and return pipeline id.
     """
     data = {
         'parameters': { 'run_workflow_deploy': True },
@@ -73,6 +73,7 @@ def deploy(circle_ci_token):
         data=json.dumps(data))
     
     print(f'Posted request to circleci with {response.status_code} status code response')
+    return response.json()['id']
 
 def run_test(yaml, model, conf, results, gs_job_dir=None, prefix='', img_size=1280, thres=None):
     """Run tests, save results, record important metrics and return status.
@@ -224,8 +225,7 @@ def main(opt, config):
     
     if config['deploy_after_train']:
         update_model_pointers(opt.job_dir, config['storage']['gs_model_pointers_dir'])
-        res = deploy(opt.circle_ci_token)
-        pipeline_id = res.json()['id']
+        pipeline_id = deploy(opt.circle_ci_token)
         update_status('running\ndeployment\n' + pipeline_id, opt.job_dir)
     else:
         print('Skip deploying as deploy_after_train=False')
