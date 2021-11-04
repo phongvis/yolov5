@@ -224,8 +224,9 @@ def main(opt, config):
     
     if config['deploy_after_train']:
         update_model_pointers(opt.job_dir, config['storage']['gs_model_pointers_dir'])
-        deploy(opt.circle_ci_token)
-        update_status('running\ndeployment', opt.job_dir)
+        res = deploy(opt.circle_ci_token)
+        pipeline_id = res.json()['id']
+        update_status('running\ndeployment\n' + pipeline_id, opt.job_dir)
     else:
         print('Skip deploying as deploy_after_train=False')
         update_status('succeeded\nevaluation', opt.job_dir)
