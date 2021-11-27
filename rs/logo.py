@@ -57,7 +57,7 @@ def update_model_pointers(gs_job_dir, gs_model_pointers_dir):
     print(f'Copied model pointers to {gs_model_pointers_dir}')
     
 def deploy(circle_ci_token):
-    """Make circleci rebuild.
+    """Make circleci rebuild and return pipeline id.
     """
     data = {
         'parameters': { 'run_workflow_deploy': True },
@@ -73,6 +73,7 @@ def deploy(circle_ci_token):
         data=json.dumps(data))
     
     print(f'Posted request to circleci with {response.status_code} status code response')
+    return response.json()['id']
 
 def run_test(yaml, model, conf, results, gs_job_dir=None, prefix='', img_size=1280, thres=None):
     """Run tests, save results, record important metrics and return status.
@@ -197,7 +198,7 @@ def _update_static_yaml(source_file, dest_file):
     
 def main(opt, config):
     # 0. Start with updating the status
-    update_status('running\nevaluation', opt.gs_job_dir)
+    update_status('running\nevaluation', opt.job_dir)
 
     # 1. Evaluate
     validation_yaml = 'data/' + opt.train_folder + '/data.yaml'
@@ -219,16 +220,16 @@ def main(opt, config):
     # 3. Deploy
     if optimal_conf is None:
         print('Training finished with poor results. No deployment.')
-        update_status('failed\nevaluation', opt.gs_job_dir)
+        update_status('failed\nevaluation', opt.job_dir)
         return
     
     if config['deploy_after_train']:
         update_model_pointers(opt.job_dir, config['storage']['gs_model_pointers_dir'])
-        deploy(opt.circle_ci_token)
-        update_status('running\ndeployment', opt.gs_job_dir)
+        pipeline_id = deploy(opt.circle_ci_token)
+        update_status('running\ndeployment\n' + pipeline_id, opt.job_dir)
     else:
         print('Skip deploying as deploy_after_train=False')
-        update_status('succeeded\nevaluation', opt.gs_job_dir)
+        update_status('succeeded\nevaluation', opt.job_dir)
     
 def load_configs(gs_params_file):
     os.system(f'gsutil cp {gs_params_file} params.json')
@@ -238,7 +239,7 @@ def load_configs(gs_params_file):
 def update_status(content, gs_job_dir):
     """Update status in to a 'status' file in the GS job dir.
     """
-    with open('tmp_file') as f:
+    with open('tmp_file', 'w') as f:
         f.write(content)
     os.system(f'gsutil cp tmp_file {gs_job_dir}status')
     
