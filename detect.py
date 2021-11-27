@@ -121,6 +121,7 @@ def run(weights='yolov5s.pt',  # model.pt path(s)
             s += '%gx%g ' % img.shape[2:]  # print string
             gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]  # normalization gain whwh
             imc = im0.copy() if save_crop else im0  # for save_crop
+            has_preds = False
             if len(det):
                 # Rescale boxes from img_size to im0 size
                 det[:, :4] = scale_coords(img.shape[2:], det[:, :4], im0.shape).round()
@@ -132,6 +133,13 @@ def run(weights='yolov5s.pt',  # model.pt path(s)
 
                 # Write results
                 for *xyxy, conf, cls in reversed(det):
+                    x1, y1, x2, y2 = xyxy
+                    w = x2.item() - x1.item()
+                    h = y2.item() - y1.item()
+                    if w < 20 or h < 20:
+                        continue
+                        
+                    has_preds = True
                     if save_txt:  # Write to file
                         xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
                         line = (cls, *xywh, conf) if save_conf else (cls, *xywh)  # label format
@@ -154,7 +162,7 @@ def run(weights='yolov5s.pt',  # model.pt path(s)
                 cv2.waitKey(1)  # 1 millisecond
 
             # Save results (image with detections)
-            if save_img and len(det):
+            if save_img and has_preds:
                 if dataset.mode == 'image':
                     cv2.imwrite(save_path, im0)
                 else:  # 'video' or 'stream'
