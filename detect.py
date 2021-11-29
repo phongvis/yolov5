@@ -133,6 +133,9 @@ def run(weights='yolov5s.pt',  # model.pt path(s)
 
                 # Write results
                 for *xyxy, conf, cls in reversed(det):
+                    if names[int(cls)].startswith('_'):
+                        continue
+                        
                     x1, y1, x2, y2 = xyxy
                     w = x2.item() - x1.item()
                     h = y2.item() - y1.item()

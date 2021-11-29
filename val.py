@@ -374,6 +374,7 @@ def compute_metrics(data,
     p, r, f1, mp, mr = 0., 0., 0., 0., 0.
     stats, ap_class = [], []
     img_count = 0
+    min_size = 20
     for img, targets, paths, shapes in tqdm(dataloader, desc=s):
         img = img.to(device, non_blocking=True)
         img = img.half() if half else img.float()  # uint8 to fp16/32
@@ -404,6 +405,18 @@ def compute_metrics(data,
                 continue
 
             # Predictions
+            # filter by size and class name (not starting with underscore)
+            keep_indices = []
+            for idx, (*xyxy, conf, cls) in enumerate(pred.tolist()):
+                if names[int(cls)].startswith('_'):
+                    continue
+                x1, y1, x2, y2 = xyxy
+                w = x2 - x1
+                h = y2 - y1
+                if w >= min_size and h >= min_size:
+                    keep_indices.append(idx)
+            pred = pred[keep_indices,:]
+            
             predn = pred.clone()
             scale_coords(img[si].shape[1:], predn[:, :4], shapes[si][0], shapes[si][1])  # native-space pred
 
@@ -611,9 +624,11 @@ def export_detailed_preds(data,
                 continue
 
             # Predictions
-            # filter by size
+            # filter by size and class name (not starting with underscore)
             keep_indices = []
             for idx, (*xyxy, conf, cls) in enumerate(pred.tolist()):
+                if names[int(cls)].startswith('_'):
+                    continue
                 x1, y1, x2, y2 = xyxy
                 w = x2 - x1
                 h = y2 - y1
@@ -651,13 +666,6 @@ def export_detailed_preds(data,
                         for j in (ious > iouv[0]).nonzero(as_tuple=False):
                             d = ti[i[j]]  # detected target
                             if d.item() not in detected_set:
-#                                 x1, y1, x2, y2 = pred[pi[j][0].item()][:4]
-#                                 w = x2.item() - x1.item()
-#                                 h = y2.item() - y1.item()
-#                                 if w < min_size or h < min_size:
-#                                     print('why?')
-#                                     continue
-                                    
                                 detected_set.add(d.item())
                                 detected[d.item()] = pred[pi[j][0].item()][4]
                                 correct[pi[j]] = ious[j] > iouv  # iou_thres is 1xn
@@ -697,13 +705,6 @@ def export_detailed_preds(data,
             # Append to text file
             gn = torch.tensor(shapes[si][0])[[1, 0, 1, 0]]  # normalization gain whwh
             for idx, (*xyxy, conf, cls) in enumerate(predn.tolist()):
-#                 x1, y1, x2, y2 = xyxy
-#                 w = x2 - x1
-#                 h = y2 - y1
-#                 if w < min_size or h < min_size:
-#                     print('why')
-#                     continue
-                        
                 xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
                 line = (cls, *xywh, conf)
                 
