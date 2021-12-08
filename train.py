@@ -437,6 +437,11 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
                 torch.save(ckpt, last)
                 if best_fitness == fi:
                     torch.save(ckpt, best)
+                # Phong: added to save even locally
+                if (epoch >= opt.start_to_save) and (opt.save_period > 0) and (epoch % opt.save_period == 0):
+                    f = wdir / f'epoch{epoch}-{fi.sum():.3f}.pt'
+                    torch.save(ckpt, f)
+                    strip_optimizer(f)
                 if loggers['wandb']:
                     if ((epoch + 1) % opt.save_period == 0 and not final_epoch) and opt.save_period != -1:
                         wandb_logger.log_model(last.parent, opt, epoch, fi, best_model=best_fitness == fi)
@@ -517,6 +522,7 @@ def parse_opt(known=False):
     parser.add_argument('--upload_dataset', action='store_true', help='Upload dataset as W&B artifact table')
     parser.add_argument('--bbox_interval', type=int, default=-1, help='Set bounding-box image logging interval for W&B')
     parser.add_argument('--save_period', type=int, default=-1, help='Log model after every "save_period" epoch')
+    parser.add_argument('--start_to_save', type=int, default=-1, help='When to start logging model')
     parser.add_argument('--artifact_alias', type=str, default="latest", help='version of dataset artifact to be used')
     parser.add_argument('--local_rank', type=int, default=-1, help='DDP parameter, do not modify')
     opt = parser.parse_known_args()[0] if known else parser.parse_args()
