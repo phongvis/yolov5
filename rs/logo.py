@@ -11,25 +11,28 @@ import pytz
 
 from val import run, compute_metrics
 
-def update_metadata(optimal_conf, model_details, gs_job_dir, data_yaml):
+def update_metadata(optimal_conf, opt, data_yaml):
     # 1. meta.json
     meta = { 
-        'size': model_details['size'],
-        'base': model_details['base'],
-        'epochs': model_details['epochs'],
-        'threshold': optimal_conf,
+        'size': opt.img_size,
+        'base': opt.weights,
+        'epochs': opt.epochs,
+        'threshold': optimal_conf
     }
     save_folder = Path('__temp__')
     save_folder.mkdir(exist_ok=True)
     meta_file = save_folder/'meta.json'
     with open(meta_file, 'w') as f:
         f.write(json.dumps(meta))
+    gs_job_dir = opt.job_dir
     os.system(f'gsutil cp {meta_file} {gs_job_dir}')
     print(f'Copied meta.json to {gs_job_dir}')
 
-    # 2. best.pt
-    os.system(f'gsutil cp {model_details["model"]} {gs_job_dir}best.pt')
-    print(f'Copied best.pt to {gs_job_dir}')
+    # 2. Copy all .pt files because there are multiple models
+    for p in sorted(Path('runs/train').rglob('*.pt')):
+        model_name = p.parent.parent.name.replace('exp', 'best') + '.pt'
+        os.system(f'gsutil cp {p} {gs_job_dir}{model_name}')
+        print(f'Copied {p} to {gs_job_dir}{model_name}')
     
     # 3. data.yaml
     os.system(f'gsutil cp {data_yaml} {gs_job_dir}')
@@ -209,13 +212,7 @@ def main(opt, config):
                             gs_job_dir=opt.job_dir, config=config)
     
     # 2. Update training results
-    model_details = {
-        'size': opt.img_size,
-        'base': opt.weights,
-        'epochs': opt.epochs,
-        'model': model
-    }
-    update_metadata(optimal_conf, model_details, opt.job_dir, validation_yaml)
+    update_metadata(optimal_conf, opt, validation_yaml)
     
     # 3. Deploy
     if optimal_conf is None:

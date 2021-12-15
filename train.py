@@ -525,6 +525,7 @@ def parse_opt(known=False):
     parser.add_argument('--start_to_save', type=int, default=-1, help='When to start logging model')
     parser.add_argument('--artifact_alias', type=str, default="latest", help='version of dataset artifact to be used')
     parser.add_argument('--local_rank', type=int, default=-1, help='DDP parameter, do not modify')
+    parser.add_argument('--num-models', type=int, default=1, help='The number of models to train')
     opt = parser.parse_known_args()[0] if known else parser.parse_args()
     return opt
 
@@ -662,7 +663,8 @@ def run(**kwargs):
         setattr(opt, k, v)
     main(opt)
 
-
 if __name__ == "__main__":
     opt = parse_opt(True)
-    main(opt)
+    for _ in range(opt.num_models):
+        opt = parse_opt(True)
+        main(opt)
