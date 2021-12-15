@@ -472,7 +472,6 @@ def compute_metrics(data,
     print(f'#preds={num_preds}')
     print(f'#images={img_count}')
 
-    results = {}
     class_names = list(names.values())
     
     if len(stats) and stats[0].any():
@@ -496,22 +495,9 @@ def compute_metrics(data,
         metrics_df = metrics_df.set_index('name')
 
         confusion_df = pd.DataFrame(confusion_matrix.matrix[:-1,:-1].astype(int), columns=class_names, index=class_names)
-        results['correct'] = (metrics_df, confusion_df)
-    else:
-        if len(stats) > 2:
-            data = {
-                'conf': stats[1],
-                'class': [class_names[int(c)] for c in stats[2]]
-            }
-        else:
-            data = {
-                'conf': [],
-                'class': []
-            }
-        preds_df = pd.DataFrame(data)
-        results['incorrect'] = (num_preds / img_count, preds_df)
-    
-    return results
+        return (metrics_df, confusion_df)
+
+    return None
 
 @torch.no_grad()
 def export_detailed_preds(data,

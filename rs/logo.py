@@ -11,13 +11,13 @@ import pytz
 
 from val import run, compute_metrics
 
-def update_metadata(optimal_conf, opt, data_yaml):
+def update_metadata(conf_thres, opt, data_yaml):
     # 1. meta.json
     meta = { 
         'size': opt.img_size,
         'base': opt.weights,
         'epochs': opt.epochs,
-        'threshold': optimal_conf
+        'threshold': conf_thres
     }
     save_folder = Path('__temp__')
     save_folder.mkdir(exist_ok=True)
@@ -83,61 +83,43 @@ def run_test(yaml, model, conf, results, gs_job_dir=None, prefix='', img_size=12
     """
     print(f'\nEVALUATE {yaml}', flush=True)
     perf = compute_metrics(yaml, model, imgsz=img_size, conf_thres=conf)
+    if perf is None:
+        return False
+
+    metrics_df, confusion_df = perf
     save_folder = Path('__temp__')
     save_folder.mkdir(exist_ok=True)
     
-    if 'mean_f1' in thres: # Normal test
-        if 'correct' not in perf:
-            return False
-        
-        metrics_df, confusion_df = perf['correct']
-        metrics_file = save_folder/(prefix + 'metrics.csv')
-        metrics_df.to_csv(metrics_file)
-        confusion_file = save_folder/(prefix + 'confusions.csv')
-        confusion_df.to_csv(confusion_file)
+    metrics_file = save_folder/(prefix + 'metrics.csv')
+    metrics_df.to_csv(metrics_file)
+    confusion_file = save_folder/(prefix + 'confusions.csv')
+    confusion_df.to_csv(confusion_file)
 
-        # Record important metrics
-        stats = results[prefix] = {}
-        stats['mean_f1'] = metrics_df['f1'].mean()
-        stats['highest_f1'] = metrics_df.sort_values('f1', ascending=False).iloc[:5]['f1'].to_dict()
-        stats['lowest_f1'] = metrics_df.sort_values('f1', ascending=True).iloc[:5]['f1'].to_dict()
-        stats['lower_precision_threshold'] = metrics_df[metrics_df['precision'] < thres['prec']]['precision'].sort_values().to_dict()
-        stats['lower_recall_threshold'] = metrics_df[metrics_df['recall'] < thres['recall']]['recall'].sort_values().to_dict()
+    # Record important metrics
+    stats = results[prefix] = {}
+    stats['mean_f1'] = metrics_df['f1'].mean()
+    stats['highest_f1'] = metrics_df.sort_values('f1', ascending=False).iloc[:5]['f1'].to_dict()
+    stats['lowest_f1'] = metrics_df.sort_values('f1', ascending=True).iloc[:5]['f1'].to_dict()
+    stats['lower_precision_threshold'] = metrics_df[metrics_df['precision'] < thres['prec']]['precision'].sort_values().to_dict()
+    stats['lower_recall_threshold'] = metrics_df[metrics_df['recall'] < thres['recall']]['recall'].sort_values().to_dict()
 
-        print(prefix)
-        print(f'  Mean of F1 for all classes: {stats["mean_f1"]:.2f}')
-        print(f'  Number of classes with precisions lower than {thres["prec"]}: {len(stats["lower_precision_threshold"])}')
-        print(f'  Number of classes with recalls lower than {thres["recall"]}: {len(stats["lower_recall_threshold"])}')
-        
-        if gs_job_dir:
-            gs_job_dir = gs_job_dir + 'stats/'
-            print('  Copy metrics and confusions files to gscloud')
-            os.system(f'gsutil cp {metrics_file} {gs_job_dir}')
-            os.system(f'gsutil cp {confusion_file} {gs_job_dir}')
-
-        # Test fails if either mean f1 is lower than threshold or precision/recall of any class is lower than threshold
-        return stats['mean_f1'] >= thres['mean_f1'] and not stats['lower_precision_threshold'] and not stats['lower_recall_threshold']
-    else: # False positives test
-        rate, preds_df = perf['incorrect']
-        preds_file = save_folder/(prefix + 'false_preds.csv')
-        preds_df.to_csv(preds_file, index=None)
+    print(prefix)
+    print(f'  Mean of F1 for all classes: {stats["mean_f1"]:.2f}')
+    print(f'  Number of classes with precisions lower than {thres["prec"]}: {len(stats["lower_precision_threshold"])}')
+    print(f'  Number of classes with recalls lower than {thres["recall"]}: {len(stats["lower_recall_threshold"])}')
     
-         # Record important metrics
-        stats = results[prefix] = {}
-        stats['preds_per_image'] = rate
-        print(prefix)
-        print(f'  #false predictions per image: {rate:.2f}')
-        
-        if gs_job_dir:
-            gs_job_dir = gs_job_dir + 'stats/'
-            print('  Copy false predictions to gscloud')
-            os.system(f'gsutil cp {preds_file} {gs_job_dir}')
-            
-        return rate <= thres['preds_per_image']
-    
+    if gs_job_dir:
+        gs_job_dir = gs_job_dir + 'stats/'
+        print('  Copy metrics and confusions files to gscloud')
+        os.system(f'gsutil cp {metrics_file} {gs_job_dir}')
+        os.system(f'gsutil cp {confusion_file} {gs_job_dir}')
+
+    # Test fails if either mean f1 is lower than threshold or precision/recall of any class is lower than threshold
+    return stats['mean_f1'] >= thres['mean_f1'] and not stats['lower_precision_threshold'] and not stats['lower_recall_threshold']
+
 def evaluate(validation_yaml, unit_test_yaml, model, gs_job_dir=None, img_size=1280, config=None):
     """Evaluate the model against a number of tests.
-    Return None if the model fails. Return the confidence threshold if it's sucessful.
+    Return True if all tests pass.
     """
     print('\n==================== EVALUATING MODEL ===================\n')
     
@@ -145,10 +127,9 @@ def evaluate(validation_yaml, unit_test_yaml, model, gs_job_dir=None, img_size=1
     # 1b. Retrieve optimal confidence threshold for following metrics calculation and inference usage
     print(f'EVALUATE validation set {validation_yaml}', flush=True)
     val_map, conf = run(validation_yaml, model, imgsz=img_size, get_optimal_conf=True)
-    conf = max(conf, config['min_opt_conf'])
+    conf = config['conf_thres']
     val_status = val_map >= config['val_map_thres']
     results = { "mean_map_validation": val_map }
-    print(f'Optimal confidence: {conf:.2f}')
     print(f'validation mAP: {val_map:.2f}')
     print('val_status', val_status)
     
@@ -180,10 +161,10 @@ def evaluate(validation_yaml, unit_test_yaml, model, gs_job_dir=None, img_size=1
         
     if all([val_status, unit_test_status] + manual_tests_statuses):
         print('All tests suceeded')
-        return conf
+        return True
     else:
         print('Tests failed; see results.json for more details')
-        return None
+        return False
 
 def _update_static_yaml(source_file, dest_file):
     """handmade/false positive tests are static with a small number of classes. 
@@ -208,14 +189,13 @@ def main(opt, config):
     unit_test_yaml = 'data/' + opt.unittest_folder + '/data.yaml'
     model = 'runs/train/exp/weights/best.pt'
 
-    optimal_conf = evaluate(validation_yaml, unit_test_yaml, model, 
-                            gs_job_dir=opt.job_dir, config=config)
+    passed = evaluate(validation_yaml, unit_test_yaml, model, gs_job_dir=opt.job_dir, config=config)
     
     # 2. Update training results
-    update_metadata(optimal_conf, opt, validation_yaml)
+    update_metadata(config['conf_thres'], opt, validation_yaml)
     
     # 3. Deploy
-    if optimal_conf is None:
+    if not passed:
         print('Training finished with poor results. No deployment.')
         update_status('failed\nevaluation', opt.job_dir)
         return
