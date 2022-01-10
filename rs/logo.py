@@ -29,7 +29,7 @@ def update_metadata(conf_thres, opt, data_yaml):
     print(f'Copied meta.json to {gs_job_dir}')
 
     # 2. Copy all .pt files because there are multiple models
-    for p in sorted(Path('runs/train').rglob('*.pt')):
+    for p in sorted(Path('runs/train').rglob('best.pt')):
         model_name = p.parent.parent.name.replace('exp', 'best') + '.pt'
         os.system(f'gsutil cp {p} {gs_job_dir}{model_name}')
         print(f'Copied {p} to {gs_job_dir}{model_name}')

@@ -665,6 +665,4 @@ def run(**kwargs):
 
 if __name__ == "__main__":
     opt = parse_opt(True)
-    for _ in range(opt.num_models):
-        opt = parse_opt(True)
-        main(opt)
+    main(opt)
