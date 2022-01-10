@@ -55,7 +55,7 @@ def run(data,
         plots=True,
         wandb_logger=None,
         compute_loss=None,
-        get_optimal_conf=False # Return the optimal confidence threshold
+        get_map_alone=False
         ):
     # Initialize/load model and set device
     training = model is not None
@@ -305,8 +305,8 @@ def run(data,
     for i, c in enumerate(ap_class):
         maps[c] = ap[i]
 
-    if get_optimal_conf:
-        return map, optimal_conf
+    if get_map_alone:
+        return map
     else:
         return (mp, mr, map50, map, *(loss.cpu() / len(dataloader)).tolist()), maps, t
 

@@ -144,7 +144,7 @@ def evaluate(validation_yaml, unit_test_yaml, model, gs_job_dir=None, img_size=1
     # 1a. Compute validation mAP
     # 1b. Retrieve optimal confidence threshold for following metrics calculation and inference usage
     print(f'EVALUATE validation set {validation_yaml}', flush=True)
-    val_map = run(validation_yaml, model, imgsz=img_size)
+    val_map = run(validation_yaml, model, imgsz=img_size, get_map_alone=True)
     conf = config['conf_thres']
     val_status = val_map >= config['val_map_thres']
     results = { "mean_map_validation": val_map }
