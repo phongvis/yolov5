@@ -11,13 +11,13 @@ import pytz
 
 from val import run, compute_metrics
 
-def update_metadata(optimal_conf, opt, data_yaml):
+def update_metadata(conf_thres, opt, data_yaml):
     # 1. meta.json
     meta = { 
         'size': opt.img_size,
         'base': opt.weights,
         'epochs': opt.epochs,
-        'threshold': optimal_conf
+        'threshold': conf_thres
     }
     save_folder = Path('__temp__')
     save_folder.mkdir(exist_ok=True)
@@ -137,18 +137,17 @@ def run_test(yaml, model, conf, results, gs_job_dir=None, prefix='', img_size=12
     
 def evaluate(validation_yaml, unit_test_yaml, model, gs_job_dir=None, img_size=1280, config=None):
     """Evaluate the model against a number of tests.
-    Return None if the model fails. Return the confidence threshold if it's sucessful.
+    Return True if all tests pass.
     """
     print('\n==================== EVALUATING MODEL ===================\n')
     
     # 1a. Compute validation mAP
     # 1b. Retrieve optimal confidence threshold for following metrics calculation and inference usage
     print(f'EVALUATE validation set {validation_yaml}', flush=True)
-    val_map, conf = run(validation_yaml, model, imgsz=img_size, get_optimal_conf=True)
-    conf = max(conf, config['min_opt_conf'])
+    val_map = run(validation_yaml, model, imgsz=img_size)
+    conf = config['min_opt_conf']
     val_status = val_map >= config['val_map_thres']
     results = { "mean_map_validation": val_map }
-    print(f'Optimal confidence: {conf:.2f}')
     print(f'validation mAP: {val_map:.2f}')
     print('val_status', val_status)
     
@@ -180,10 +179,10 @@ def evaluate(validation_yaml, unit_test_yaml, model, gs_job_dir=None, img_size=1
         
     if all([val_status, unit_test_status] + manual_tests_statuses):
         print('All tests suceeded')
-        return conf
+        return True
     else:
         print('Tests failed; see results.json for more details')
-        return None
+        return False
 
 def _update_static_yaml(source_file, dest_file):
     """handmade/false positive tests are static with a small number of classes. 
