@@ -207,14 +207,14 @@ def main(opt, config):
     unit_test_yaml = 'data/' + opt.unittest_folder + '/data.yaml'
     model = 'runs/train/exp/weights/best.pt'
 
-    optimal_conf = evaluate(validation_yaml, unit_test_yaml, model, 
-                            gs_job_dir=opt.job_dir, config=config)
+    passed = evaluate(validation_yaml, unit_test_yaml, model, 
+                      gs_job_dir=opt.job_dir, config=config)
     
     # 2. Update training results
-    update_metadata(optimal_conf, opt, validation_yaml)
+    update_metadata(config['conf_thres'], opt, validation_yaml)
     
     # 3. Deploy
-    if optimal_conf is None:
+    if not passed:
         print('Training finished with poor results. No deployment.')
         update_status('failed\nevaluation', opt.job_dir)
         return
