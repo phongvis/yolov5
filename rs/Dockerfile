@@ -1,4 +1,4 @@
-FROM nvidia/cuda:11.3.0-runtime
+FROM nvidia/cuda:11.1.0-runtime
 
 # python3, some directly used packages and some just to work around
 RUN export DEBIAN_FRONTEND=noninteractive && \
