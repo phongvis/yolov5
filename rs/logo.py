@@ -207,9 +207,13 @@ def main(opt, config):
     unit_test_yaml = 'data/' + opt.unittest_folder + '/data.yaml'
     model = 'runs/train/exp/weights/best.pt'
 
-    passed = evaluate(validation_yaml, unit_test_yaml, model, 
-                      gs_job_dir=opt.job_dir, config=config)
-    
+    passed = False
+    try:
+        passed = evaluate(validation_yaml, unit_test_yaml, model, 
+                        gs_job_dir=opt.job_dir, config=config)
+    except Exception as e:
+        print(f'Evaluation failed with exception.')
+
     # 2. Update training results
     update_metadata(config['conf_thres'], opt, validation_yaml)
     
