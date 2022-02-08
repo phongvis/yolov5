@@ -1,4 +1,4 @@
-FROM nvidia/cuda:11.1.0-runtime
+FROM nvidia/cuda:11.1-runtime
 
 # python3, some directly used packages and some just to work around
 RUN export DEBIAN_FRONTEND=noninteractive && \
@@ -43,6 +43,8 @@ RUN wget -nv https://github.com/ultralytics/yolov5/releases/download/v5.0/yolov5
 
 # # Installs required packages
 RUN pip install -r requirements.txt
+
+RUN pip install torch==1.9.0+cu111 torchvision==0.10.0+cu111 -f https://download.pytorch.org/whl/torch_stable.html
 
 # Sets up the entry point
 RUN ["chmod", "+x", "/root/entry.sh"]
