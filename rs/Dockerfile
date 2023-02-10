@@ -39,9 +39,8 @@ COPY yolov5/rs /root
 
 # Download base model
 RUN wget -nv https://github.com/ultralytics/yolov5/releases/download/v5.0/yolov5l6.pt
-RUN wget -nv https://github.com/ultralytics/yolov5/releases/download/v5.0/yolov5s.pt
 
-# # Installs required packages
+# Installs required packages
 RUN pip install -r requirements.txt
 
 RUN pip install torch==1.9.0+cu111 torchvision==0.10.0+cu111 -f https://download.pytorch.org/whl/torch_stable.html

@@ -3,16 +3,16 @@
 # Back up
 args=("$@")
 
-# https://unix.stackexchange.com/questions/129391/passing-named-arguments-to-shell-scripts
-while [ $# -gt 0 ]; do
+# # https://unix.stackexchange.com/questions/129391/passing-named-arguments-to-shell-scripts
+# while [ $# -gt 0 ]; do
 
-   if [[ $1 == *"--"* ]]; then
-        v="${1/--/}"
-        declare $v="$2"
-   fi
+#    if [[ $1 == *"--"* ]]; then
+#         v="${1/--/}"
+#         declare $v="$2"
+#    fi
 
-  shift
-done
+#   shift
+# done
 
 python download.py "${args[@]}"
 
