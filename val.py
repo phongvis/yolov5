@@ -509,7 +509,7 @@ def compute_metrics(data,
                 'class': []
             }
         preds_df = pd.DataFrame(data)
-        results['incorrect'] = (num_preds / img_count, preds_df)
+        results['incorrect'] = (num_preds / img_count / len(class_names), preds_df)
     
     return results
 

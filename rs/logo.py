@@ -99,7 +99,7 @@ def run_test(yaml, model, conf, results, gs_job_dir=None, prefix='', img_size=12
         # Record important metrics
         stats = results[prefix] = {}
         stats['mean_f1'] = metrics_df['f1'].mean()
-        stats['highest_f1'] = metrics_df.sort_values('f1', ascending=False).iloc[:5]['f1'].to_dict()
+#         stats['highest_f1'] = metrics_df.sort_values('f1', ascending=False).iloc[:5]['f1'].to_dict()
         stats['lowest_f1'] = metrics_df.sort_values('f1', ascending=True).iloc[:5]['f1'].to_dict()
         stats['lower_precision_threshold'] = metrics_df[metrics_df['precision'] < thres['prec']]['precision'].sort_values().to_dict()
         stats['lower_recall_threshold'] = metrics_df[metrics_df['recall'] < thres['recall']]['recall'].sort_values().to_dict()
@@ -124,16 +124,16 @@ def run_test(yaml, model, conf, results, gs_job_dir=None, prefix='', img_size=12
     
          # Record important metrics
         stats = results[prefix] = {}
-        stats['preds_per_image'] = rate
+        stats['preds_per_image_per_class'] = rate
         print(prefix)
-        print(f'  #false predictions per image: {rate:.2f}')
+        print(f'  #false predictions per image per class: {rate:.2f}')
         
         if gs_job_dir:
             gs_job_dir = gs_job_dir + 'stats/'
             print('  Copy false predictions to gscloud')
             os.system(f'gsutil cp {preds_file} {gs_job_dir}')
             
-        return rate <= thres['preds_per_image']
+        return rate <= thres['preds_per_image_per_class']
     
 def evaluate(validation_yaml, unit_test_yaml, model, gs_job_dir=None, img_size=1280, config=None):
     """Evaluate the model against a number of tests.
